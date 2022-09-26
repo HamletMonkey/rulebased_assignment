@@ -1,0 +1,6 @@
+/json_files
+/__pycache__
+/results
+/deap_new
+*.ipynb
+*.json
