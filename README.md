@@ -56,10 +56,11 @@ rank_of_intent = {
 
 - Once an asset unit is assigned to a detected target unit, the asset unit is categorized as CONF assets (asset assigned to confirmed targets).
 
-- **Time Sensitive Target**: in the case where Time Sensitive Target is passed in, all asset types are allowed to be used.
+- **Time Sensitive Target**: in the case where Time Sensitive Target is passed in, all asset categories (FREE, AUC, CONF) are allowed to be used.
 
 *Note:*
 *1. A target which has no solution should be penalized the most irrespective of the priority.*
+
 *2. In the event to satisfy targets during detect phase, organic AUC asset (asset assigned to unconfirmed target) is preferred over a FREE allocated asset.*
 
 ### Sector/ Coverage
@@ -84,8 +85,10 @@ rank_of_intent = {
 `python main.py`
 
 ### Current Example of JSON input (Software Output)
-***subject to change***
-1. acc_info:
+
+***+ Note: subject to change +***
+
+#### 1. acc_info:
 - represents the HPTL (High Priority Target List) passed in
 
 ```json
@@ -115,7 +118,7 @@ rank_of_intent = {
 }
 ```
 
-2. unit_info:
+#### 2. unit_info:
 - `cmdsup` is the asset type where 1 represents Organic and 2 represents Allocated asset
 - `frange` is the firing/ attack range of each asset unit
 - `asset_cat` is the asset category where 1 represents FREE, 2 represents AUC and 3 represents CONF asset
@@ -137,7 +140,7 @@ rank_of_intent = {
 }
 ```
 
-3. time:
+#### 3. time:
 - depending on the latitude and longitude coordinates of each asset unit, the derived time with respect to each target unit is different
 
 ```json
