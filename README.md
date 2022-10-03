@@ -58,7 +58,8 @@ rank_of_intent = {
 
 - **Time Sensitive Target**: in the case where Time Sensitive Target is passed in, all asset categories (FREE, AUC, CONF) are allowed to be used.
 
-*Note:*
+***NOTE:***
+
 *1. A target which has no solution should be penalized the most irrespective of the priority.*
 
 *2. In the event to satisfy targets during detect phase, organic AUC asset (asset assigned to unconfirmed target) is preferred over a FREE allocated asset.*
@@ -86,7 +87,7 @@ rank_of_intent = {
 
 ### Current Example of JSON input (Software Output)
 
-***+ Note: subject to change +***
+***NOTE: subject to change***
 
 #### 1. acc_info:
 - represents the HPTL (High Priority Target List) passed in
@@ -171,9 +172,33 @@ sample_individual = [
 
 **Weight Assignment:**
 
+*27 Sept 2022*:
+
 1. Priority
 2. Intent/ Capability (e.g. if intent can be fulfilled with allocated assets, we will pick it as solution)
 3. Organic/ Allocated asset type
 4. Timeliness
 5. Non-consecutive asset deployment (only applicable for organic assets)
+7. FREE/ AUC/ CONF asset cat
+
+*30 Sept 2022*:
+
+- Solution Ver. 1
+
+1. Priority
+2. Intent/ Capability (e.g. if intent can be fulfilled with allocated assets, we will pick it as solution)
+3. Organic/ Allocated asset type
+4. Deploy Count (Non-consecutive asset deployment - only applicable for organic assets)
+5. FRange (Effective Range)
+6. Timeliness (Derived Time = Prep Time + Travel Time)
+7. FREE/ AUC/ CONF asset cat
+
+- Solution Ver. 2
+
+1. Priority
+2. Intent/ Capability (e.g. if intent can be fulfilled with allocated assets, we will pick it as solution)
+3. Deploy Count (Non-consecutive asset deployment - applicable across Organic and Allocated assets)
+4. Organic/ Allocated asset type
+5. FRange (Effective Range)
+6. Timeliness (Derived Time = Prep Time + Travel Time)
 7. FREE/ AUC/ CONF asset cat
