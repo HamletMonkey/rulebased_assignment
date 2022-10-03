@@ -1,239 +1,285 @@
-import json
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+
 import numpy as np
 import pandas as pd
-
 import random
 from sklearn.preprocessing import MinMaxScaler
-# from collections import Counter
+
+from shapely.geometry import Polygon, Point
+from haversine import haversine
 
 import time
+import argparse
 
-## -------------------- create useful dictionaries
+def safe_division(a,b):
+    try:
+        result = a/b
+    except ZeroDivisionError:
+        result = 0
+    return result
+
+## -------------------- create useful dictionaries + tools
 # asset cat dictionary
 asset_cat_dict = dict(FREE=1, AUC=2, CONF=3)
-# intent dictionary - relative to different intent
-suppress_int = dict(suppress=1, neutralize=2, destroy=3)
-neutralize_int = dict(neutralize=1, destroy=2, suppress=3)
-destroy_int = dict(destroy=1, neutralize=2, suppress=3)
-intent_dict = {
-    'suppress':suppress_int,
-    'neutralize':neutralize_int,
-    'destroy':destroy_int
+
+# intend dictionary - relative to different intend
+suppress_int = dict(Suppress=1, Neutralize=2, Destroy=3)
+neutralize_int = dict(Neutralize=1, Destroy=2, Suppress=3)
+destroy_int = dict(Destroy=1, Neutralize=2, Suppress=3)
+intend_dict = {
+    'Suppress':suppress_int,
+    'Neutralize':neutralize_int,
+    'Destroy':destroy_int
 }
-# intent rank dictionary - relative to different intent
+
+# deploy count dictionary
+dep_count_dict = {
+    0: 1,
+    1: 2,
+    2: 3
+}
+
+# intend rank dictionary - relative to different intend
 suppress_rank = {1:1, 2:2, 3:3}
 neutralize_rank = {1:2, 2:3, 3:1}
 destroy_rank = {1:3, 2:2, 3:1}
-intent_rank_dict = {
-    'suppress':suppress_rank,
-    'neutralize':neutralize_rank,
-    'destroy':destroy_rank
+intend_rank_dict = {
+    'Suppress':suppress_rank,
+    'Neutralize':neutralize_rank,
+    'Destroy':destroy_rank
 }
-# weight dictionary - across column
-weight_dict = dict(
-    intent=100,
-    cmdsup = 10,
-    derived_time = 1,
-    frange = 0.1,
-    asset_cat = 0.01
-)
 
 ## -------------------- create relevant dataframes
-
 class RB:
-    def __init__(self, acc_info, unit_info, time_info):
-        self.acc_info = acc_info
-        self.unit_info = unit_info
-        self.time_info = time_info
-        self.df_hptl = pd.DataFrame(self.acc_info).T
-        self.df_unit_master = pd.DataFrame(self.unit_info).T
-        self.df_time = pd.DataFrame(self.time_info)
-        self.df_cap = pd.DataFrame()
-        self.status_check = 0 # decide phase
+    def __init__(self, excel_filename):
+        self.excel_filename = excel_filename
+        self.df_hptl = pd.read_excel(self.excel_filename, sheet_name='High Payoff Target List')
+        self.df_asset_ml = pd.read_excel(self.excel_filename, sheet_name='Asset Master List').drop([13,14], axis=0)
+        self.df_asset_c = pd.read_excel(self.excel_filename, sheet_name='Asset Capability Table').drop([1], axis=0).reset_index(drop=True)
+        self.df_sector = pd.read_excel(self.excel_filename, sheet_name='Sector').iloc[:3, :]
+        self.df_target_sel = pd.read_excel(self.excel_filename, sheet_name='Target Selection Standards')
+        self.sectors = dict()
+        self.target_unit_list = list()
+        self.mm = MinMaxScaler(feature_range=(1, 3))
+        self.status_check = self.df_hptl['Status'].unique()
 
     def update_df(self):
-        # HTPL input
-        self.df_hptl.loc[:, "status"] =  self.df_hptl.loc[:, "status"].apply(lambda x: 0 if x=='decide' else 1)
-        self.status_check = int(self.df_hptl['status'].unique())
+        # 1. High Payoff Target List
+        self.df_hptl.set_index('Target Unit', inplace=True)
+        self.target_unit_list = list(self.df_hptl.index)
 
-        # unit info input
-        self.df_unit_master.loc[:, "asset_cat"] =  self.df_unit_master.loc[:, "asset_cat"].apply(lambda x: asset_cat_dict[x])
+        # 2. Asset Master List
+        self.df_asset_ml.set_index('Unit', inplace=True)
+        self.df_asset_ml['Sector_A'] = self.df_asset_ml['Coverage'].apply(lambda x: 1 if 'A' in x else 0)
+        self.df_asset_ml['Sector_B'] = self.df_asset_ml['Coverage'].apply(lambda x: 1 if 'B' in x else 0)
+        self.df_asset_ml['Sector_C'] = self.df_asset_ml['Coverage'].apply(lambda x: 1 if 'C' in x else 0)
+        
+        # 3. Asset Capability Table
+        self.df_asset_c.fillna(0, inplace=True)
+        self.df_asset_c.set_index('Category', inplace=True)
 
-        mm = MinMaxScaler(feature_range=(1, 3)) # standardize across all columns
-        self.df_unit_master['frange'] = mm.fit_transform(np.array(self.df_unit_master['frange'].values.reshape(-1, 1)))
-        self.df_unit_master['frange'] = self.df_unit_master['frange'].apply(lambda x: round(x,3))
+        # 4. Sectors
+        for i in range(len(self.df_sector)):
+            all_points = list()
+            for j in range(1,9,2):
+                all_points.append(list(self.df_sector.values[i, j:j+2]))
+            self.sectors[self.df_sector.values[i, 0]] = Polygon(all_points)
 
-        # tune info input
-        self.df_time = pd.DataFrame(mm.fit_transform(self.df_time), index=self.df_time.index, columns=self.df_time.columns)
+        # 5. Target Selection Standards
+        self.df_target_sel.set_index('Category', inplace=True)
 
-        # capability dataframe
-        self.df_cap['category'] = self.df_hptl['category']
-        for k, v in self.acc_info.items():
-            temp_d = v['weapon_target']
-            for intent, assetType in temp_d.items():
-                for i in assetType:
-                    self.df_cap.loc[k, assetType] = intent
-        self.df_cap.fillna(0, inplace=True)
-        return self.df_hptl, self.df_unit_master, self.df_time, self.df_cap
+        return
 
-    ## -------------------- main
-    def main(self):
-        # get a copy of unit_info dataframe:
-        df_unit_info = self.df_unit_master.copy(deep=True)
-        unit_deployed = list()
-        unit_deployed_count = dict()
-        warning_dict = dict()
+def get_weight_dict(intent_w, cmdsup_w, depcount_w, frange_w, derivet_w):
+    weight_dict = {
+        'Intend':intent_w,
+        'CMD/SUP':cmdsup_w,
+        'DeployCount':depcount_w,
+        'FRange':frange_w,
+        'DerivedTime':derivet_w
+        # 'AssetCat': assetcat_w
+    }
 
-        asset_list = self.df_cap.columns[1:]
-        prev_unit = 'NIL'
-        # starttime = time.time()
+    return weight_dict
 
-        for idx, row in self.df_cap.iterrows():
-            if len(df_unit_info)==0: # if no more assets left, break out of the loop
-                self.target_unit_list = list(self.df_hptl.index)
-                t_unit_index = self.target_unit_list.index(idx)
-                for _ in self.target_unit_list[t_unit_index:]:
-                    unit_deployed.append('NS')
-                print('breaking here!')
-                break
+
+def run(rb, weight_dict):
+    
+    warning_dict = dict()
+    unit_deployed = list()
+
+    # update organic asset deployment count
+    organic_assets = rb.df_asset_ml.loc[rb.df_asset_ml['CMD/SUP']=='Organic'].index
+    organic_dep_count = dict(zip(organic_assets, [0 for _ in range(len(organic_assets))])) # initialize
+
+    df_unit_info = rb.df_asset_ml.copy(deep=True)
+    df_unit_info['CMD/SUP'] = df_unit_info['CMD/SUP'].apply(lambda x: 1 if x=='Organic' else 2)
+
+    for i, (idx,row) in enumerate(rb.df_hptl.iterrows()):
+        print(f'target_unit {i+1}: {idx}')
+        if len(df_unit_info) == 0:
+            t_unit_index = rb.target_unit_list.index(idx)
+            for _ in rb.target_unit_list[t_unit_index:]:
+                unit_deployed.append('NS')
+            print('NO SOLUTION: no assets left!')
+            print()
+            break
+        else:
+            # remove organic deployment > 3
+            df_unit_info.loc[:, 'DeployCount'] = 0
+            for unit, c in organic_dep_count.items():
+                if c < 3:
+                    df_unit_info.loc[unit, 'DeployCount'] = c
+                else:
+                    try:
+                        df_unit_info = df_unit_info.drop(unit, axis=0)
+                    except KeyError: # already dropped
+                        pass
+            df_unit_info.loc[:,'DeployCount'] = df_unit_info.loc[:,'DeployCount'].apply(lambda x: dep_count_dict[x])
+
+            ## ---------- coverage
+            acc_point = Point([row['Latitude'], row['Longitude']])
+            acc_coverage = [sector for sector,poly in rb.sectors.items() if acc_point.within(poly)]
+            print(f'coverage includes sectors: {acc_coverage}')
+            idx_list = list()
+            for c in acc_coverage:
+                idx_list += list(df_unit_info.loc[df_unit_info[f'Sector_{c}']>0].index)
+            idx_list = list(set(idx_list))
+            df_unit_sub = df_unit_info.loc[idx_list,:]
+            if len(df_unit_sub)== 0:
+                selected_unit = 'NS'
+                unit_deployed.append(selected_unit)
+                print(f'NO SOLUTION: no assets in coverage!')
+                print()
+                continue
             else:
-                # print(f'target-unit: {idx}')
-                dummy = pd.DataFrame()
-                for asset in asset_list:
-                    if row[asset] != 0:
-                        df_sub = df_unit_info[df_unit_info['asset_type']==asset] # the df
-                        if len(df_sub)==0:
-                            continue
-                        else:
-                            sub_unit_list = list(df_sub.index)
-                            df_sub.loc[:, 'intent'] = row[asset]
-                            df_sub.loc[:, 'target_unit'] = idx
-                            df_sub.loc[:, 'derived_time'] = self.df_time.loc[sub_unit_list, idx]
-                            dummy = pd.concat([dummy, df_sub])
-                if len(dummy)==0:
-                    # no assets available for this target
-                    # print('no suitable asset')
+                ## ---------- basic info
+                acc_cat = row['Category']
+                print(f'incident category: {acc_cat}')
+                right_intend = row['Intend']
+                print(f'incident right intend: {right_intend}')
+                acc_location = (row['Latitude'], row['Longitude'])
+                print(f'incident location: {acc_location}')
+                acc_timeliness = rb.df_target_sel.loc[acc_cat, 'Timeliness (Mins)']
+                print(f'incident timeliness: {acc_timeliness}mins')
+
+                ## ---------- FRange related
+                df_unit_sub['Distance'] = df_unit_sub.apply(lambda x: haversine(acc_location, (x['Latitude'],x['Longitude'])), axis=1) # dist of incident to asset location
+                print(f"out of range units: {list(df_unit_sub[df_unit_sub['Distance']>df_unit_sub['Effective Radius (km)']].index)}")
+                df_unit_sub = df_unit_sub.loc[df_unit_sub['Distance']<df_unit_sub['Effective Radius (km)']] # filter out assets within range only
+                if len(df_unit_sub)==0:
+                    print('NO SOLUTION: all assets out of range!')
                     selected_unit = 'NS'
                     unit_deployed.append(selected_unit)
                 else:
-                    right_intent = self.df_hptl.loc[idx,'intent'] # suppress, neutralize, destroy
-                    # print(f'right intent: {right_intent}')
-                    right_intent_rank = intent_dict[right_intent][right_intent]
-                    dummy.loc[:, "intent"] =  dummy.loc[:, "intent"].apply(lambda x: intent_dict[right_intent][x])
+                    df_unit_sub.loc[:, 'FRange'] = rb.mm.fit_transform(np.array(df_unit_sub['Effective Radius (km)'].values.reshape(-1, 1))) # scaling of range
 
-                    df_temp = dummy.copy(deep=True)
+                    ## ----------- time related
+                    df_unit_sub.loc[:, 'Time (m)'] = df_unit_sub.apply(lambda x: safe_division(x['Distance'],x['Speed (Km/h)'])*60, axis=1) # in minutes
+                    exceed_t_temp = df_unit_sub.loc[df_unit_sub['Time (m)'] > acc_timeliness, :]
+                    if len(exceed_t_temp) > 0: # assets more than timeliness limit allowed
+                        time_scaler = MinMaxScaler(feature_range=(2,3))
+                        df_unit_sub.loc[exceed_t_temp.index, "DerivedTime"] = time_scaler.fit_transform(np.array(exceed_t_temp['Time (m)'].values.reshape(-1, 1)))
+                        df_unit_sub.loc[~df_unit_sub.index.isin(exceed_t_temp.index), "DerivedTime"] = float(1)
+                    else:
+                        df_unit_sub.loc[:, 'DerivedTime'] = float(1)
+                    
+                    ## ---------- intend related
+                    right_intend_rank= intend_dict[right_intend][right_intend]
+                    df_unit_sub.loc[:, 'Intend'] = df_unit_sub.apply(lambda x: rb.df_asset_c.loc[acc_cat, x['Asset Type']], axis=1)
+                    df_unit_sub.loc[:, "Intend"] =  df_unit_sub.loc[:, "Intend"].apply(lambda x: intend_dict[right_intend][x])
+                    df_unit_sub = df_unit_sub.drop(columns=['Qty','Configuration','Effective Radius (km)','Coverage','Latitude','Longitude','Speed (Km/h)'])
+
+                    df_temp = df_unit_sub.copy(deep=True)
                     for item, penalty in weight_dict.items():
                         df_temp.loc[:, item] = df_temp.loc[:, item].apply(lambda x: x*penalty)
-                        dummy.loc[:, 'score'] = df_temp['intent']+df_temp['cmdsup']+df_temp['frange']+df_temp['derived_time']+df_temp['asset_cat']
-                    sorted_df = dummy.sort_values(by=['score'])
-                    # print(sorted_df)
-                    if len(sorted_df) == 0:
-                        unit_deployed.append('NS')
-                    else:
-                        score_list = sorted(list(sorted_df['score'].unique()))
-                        min_score = score_list.pop(0)
-                        sub_asset_list = list(sorted_df[sorted_df['score']==min_score].index)
-                        selected_unit = random.sample(sub_asset_list, 1)[0]
-                        # print(f"initial selected unit: {selected_unit}")
-                        sub_asset_list.remove(selected_unit)
-                        if self.status_check==1: # detect phase
-                            unit_deployed.append(selected_unit)
-                            df_unit_info.drop([selected_unit], inplace=True)
-                            # print(f'detect phase selected unit: {selected_unit}')
-                        else: # decide phase
-                            # check if selected unit is organic assets
-                            organic_check = self.df_unit_master.loc[selected_unit, "cmdsup"]
-                            if organic_check == 1 and selected_unit == prev_unit: # organic + consecutive deployment
-                                if len(sub_asset_list) == 0 and len(score_list)==0:
-                                    # end of the list/filtered dataframe
-                                    # print(f'no other assets available: consecutive deployment of {selected_unit}')
-                                    pass
-                                elif len(sub_asset_list) == 0 and len(score_list)>0:
-                                    min_score2 = score_list.pop(0) # next best score
-                                    intent_check2 = int(sorted_df[sorted_df['score']==min_score2]['intent'].unique())
-                                    intent_check2_rank = intent_rank_dict[right_intent][intent_check2]
-                                    organic_check2 = int(sorted_df[sorted_df['score']==min_score2]['cmdsup'].unique())
-                                    if organic_check2 == 1 and intent_check2_rank>=right_intent_rank: # assets with same or higher intent
-                                        sub_asset_list2 = list(sorted_df[sorted_df['score']==min_score2].index)
-                                        selected_unit = random.sample(sub_asset_list2, 1)[0]
-                                elif len(sub_asset_list) == 1:
-                                    selected_unit = sub_asset_list[0]
-                                elif len(sub_asset_list) >= 2:
-                                    selected_unit = random.sample(sub_asset_list, 1)[0]
-                                # print(f'decide phase selected unit - second org choice: {selected_unit}')
-                            elif organic_check == 1 and selected_unit != prev_unit:
-                                # good to deploy
-                                # print(f'decide phase selected unit - first org choice: {selected_unit}')
-                                pass
-                            else: # allocated assets - deploying only once
-                                df_unit_info.drop([selected_unit], inplace=True)
-                                # print(f'decide phase selected unit - allocated: {selected_unit}')
-                                try:
-                                    warning_dict[idx][selected_unit].append('allocated_asset')
-                                except:
-                                    warning_dict[idx] = {f"{selected_unit}":['allocated_asset']}
-                            
-                            # keep track of deployment count -- decide phase
-                            if selected_unit != 'NS':
-                                try:
-                                    unit_deployed_count[selected_unit] += 1
-                                    if unit_deployed_count[selected_unit] >= 3:
-                                        df_unit_info.drop([selected_unit], inplace=True)
-                                except KeyError:
-                                    unit_deployed_count[selected_unit] = 1
+                        df_unit_sub.loc[:, 'score'] = df_temp['Intend']+df_temp['CMD/SUP']+df_temp['FRange']+df_temp['DerivedTime']+df_temp['DeployCount']
+                    sorted_df = df_unit_sub.sort_values(by=['score'])
+                    print(sorted_df)
 
-                            # unit deployed for this target
-                            unit_deployed.append(selected_unit)
-                        
-                        selected_unit_assType = df_unit_master.loc[selected_unit,'asset_type']
-                        selected_unit_intent = df_cap.loc[idx, selected_unit_assType]
-                        selected_unit_rank = intent_dict[right_intent][selected_unit_intent] # assigned rank
-                        selected_unit_c = intent_rank_dict[right_intent][selected_unit_rank] # checking rank
-                        if selected_unit_c < intent_rank_dict[right_intent][right_intent_rank]:
+                    score_list = sorted(list(sorted_df['score'].unique()))
+                    min_score = score_list.pop(0)
+                    sub_asset_list = list(sorted_df.loc[sorted_df['score']==min_score,:].index)
+                    selected_unit = random.sample(sub_asset_list, 1)[0]
+                    print(f"initial selected unit: {selected_unit}")
+                    
+                    sub_asset_list.remove(selected_unit)
+
+                    if rb.status_check != 'Unknown': # detect phase
+                        unit_deployed.append(selected_unit)
+                        df_unit_info.drop([selected_unit], inplace=True)
+                        print(f'detect phase selected unit: {selected_unit}')
+                    else: # decide phase
+                        organic_check = df_unit_info.loc[selected_unit, "CMD/SUP"]
+                        if organic_check == 2: # allocated asset
+                            df_unit_info.drop([selected_unit], inplace=True)
+                            print(f'decide phase selected unit - allocated: {selected_unit}')
                             try:
-                                warning_dict[idx][selected_unit].append('intent_lowered')
+                                warning_dict[idx][selected_unit].append('allocated_asset')
                             except:
-                                warning_dict[idx] = {f"{selected_unit}":['intent_lowered']}
-                        # 2. timeliness check
-                        if time_info[idx][selected_unit] > acc_info[idx]['timeliness']:
+                                warning_dict[idx] = {f"{selected_unit}":['allocated_asset']}
+
+                        # keep track of deployment count (only applicable to decide phase)
+                        if selected_unit != 'NS':
                             try:
-                                warning_dict[idx][selected_unit].append('timeliness_violation')
-                            except:
-                                warning_dict[idx] = {f"{selected_unit}":['timeliness_violation']}
-                prev_unit = selected_unit
-        # print(f'WARNING: {warning_dict}\n')
-        return unit_deployed, warning_dict
+                                organic_dep_count[selected_unit] += 1
+                            except KeyError:
+                                pass
+
+                        unit_deployed.append(selected_unit)
+
+                    ## ---------- getting all the warnings
+                    # 1. lower intent warnings
+                    selected_unit_assType = rb.df_asset_ml.loc[selected_unit,'Asset Type']
+                    selected_unit_intend = rb.df_asset_c.loc[acc_cat, selected_unit_assType]
+
+                    selected_unit_rank = intend_dict[right_intend][selected_unit_intend] # assigned rank
+                    selected_unit_check = intend_rank_dict[right_intend][selected_unit_rank] # checking rank
+
+                    if selected_unit_check < intend_rank_dict[right_intend][right_intend_rank]:
+                        try:
+                            warning_dict[idx][selected_unit].append('intent_lowered')
+                        except:
+                            warning_dict[idx] = {f"{selected_unit}":['intent_lowered']}
+
+                    # 2. timeliness warnings
+                    if selected_unit in exceed_t_temp.index:
+                        try:
+                            warning_dict[idx][selected_unit].append('timeliness_violation')
+                        except:
+                            warning_dict[idx] = {f"{selected_unit}":['timeliness_violation']}
+        
+        print()
+
+    return unit_deployed, warning_dict
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input_path", type=str, default="./csv_files/DMS_target_sample.xlsx")
+    args = parser.parse_args()
 
-    ## -------------------- read in JSON files
-    # with open("json_files/data5_trial.json", 'r') as j: # 20 cases
-    # with open("json_files/data5_100.json", 'r') as j: # 120 cases
-    with open("json_files/data_500.json", 'r') as j: # 500 cases
-        acc_info = json.loads(j.read())
+    filename = args.input_path
 
-    # with open("json_files/unit_info5_trial.json", 'r') as j: # not enough units
-    with open("json_files/unit_info_100.json", 'r') as j: # 120 units
-    # with open("json_files/unit_info_500.json", 'r') as j: # 500 units
-    # with open("json_files/unit_info_300.json", 'r') as j: # 300 units
-        unit_info = json.loads(j.read())
+    rb = RB(filename)
+    rb.update_df()
 
-    # with open("json_files/time.json", 'r') as j:
-    with open("json_files/time_300.json", 'r') as j: # 300 units 500 cases
-    # with open("json_files/time_500.json", 'r') as j: # 500 units 500 cases
-    # with open("json_files/time_same.json", 'r') as j: # same derived time accross different targets
-        time_info= json.loads(j.read())
+    weight_v1 = get_weight_dict(intent_w=1000, cmdsup_w=100, depcount_w=10, frange_w=1, derivet_w=0.1)
+    weight_v2 = get_weight_dict(intent_w=1000, cmdsup_w=10, depcount_w=100, frange_w=1, derivet_w=0.1)
 
-    rb_trial = RB(acc_info, unit_info, time_info)
-    df_hptl, df_unit_master, df_time, df_cap = rb_trial.update_df()
+    start_time = time.time()
 
-    starttime = time.time()
-    for i in range(3):
-        output, warning_dict = rb_trial.main()
-        print(f"output{i+1}: {output}")
-        # print(f"counter check: {[(k,v) for k,v in Counter(output).items() if v>1]}")
-        if len(warning_dict)>0:
-            print(f"\n WARNING: {warning_dict}")
-        print()
-    endtime = time.time()
-    print(f'total runtime: {round(endtime-starttime, 4)}s')
+    solv1, warning1 = run(rb, weight_v1)
+    solv2, warning2 = run(rb, weight_v2)
+    solv1, warning1 = run(rb, weight_v1)
+
+    end_time = time.time()
+
+    print(f'Total runtime: {round(end_time-start_time, 4)}s')
+    print(f'sol_v1: \n{solv1}')
+    if len(warning1)>0:
+        print(f'sol_v1 warning: \n{warning1}')
+    
+    print(f'\nsol_v2: \n{solv2}')
+    if len(warning2)>0:
+        print(f'sol_v2 warning: \n{warning2}')
