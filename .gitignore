@@ -1,8 +1,10 @@
-/json_files
 /__pycache__
+/json_files
 /results
 /deap_new
 /csv_files
+/xlsx_files
 *.ipynb
 *.json
+*.csv
 *.xlsx
