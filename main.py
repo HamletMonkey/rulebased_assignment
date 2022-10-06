@@ -5,6 +5,7 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 import os
 import numpy as np
 import pandas as pd
+import json
 import random
 from sklearn.preprocessing import MinMaxScaler
 
@@ -12,6 +13,7 @@ from shapely.geometry import Polygon, Point
 from haversine import haversine
 
 import time
+from datetime import datetime
 import argparse
 
 
@@ -291,12 +293,12 @@ def run(rb, weight_dict, view=True):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--input_path", type=str, default="./csv_files/DMS_target_sample.xlsx"
+        "--input_path", type=str, default="./xlsx_files/DMS_target_sample.xlsx"
     )
     parser.add_argument("--output_path", type=str, default="results")
     parser.add_argument("--intend_w", type=int, default=1000)
-    parser.add_argument("--cmdsup_w", type=int, default=10)
-    parser.add_argument("--depcount_w", type=int, default=100)
+    parser.add_argument("--cmdsup_w", type=int, default=100)
+    parser.add_argument("--depcount_w", type=int, default=10)
     parser.add_argument("--frange_w", type=int, default=1)
     parser.add_argument("--derivedt_w", type=int, default=0.1)
     parser.add_argument(
@@ -314,7 +316,7 @@ if __name__ == "__main__":
     rb = RB(filename)
     rb.update_df()
 
-    weight_v1 = get_weight_dict(
+    weight = get_weight_dict(
         intent_w=args.intend_w,
         cmdsup_w=args.cmdsup_w,
         depcount_w=args.depcount_w,
@@ -324,22 +326,25 @@ if __name__ == "__main__":
 
     start_time = time.time()
 
-    sol = dict()
+    combined_output = dict()
+    combined_warning = dict()
     for i in range(1, args.var_sol+1):
-        solv1, warning1 = run(rb, weight_v1, args.view)
-        sol[i] = solv1
+        output, warning = run(rb, weight, args.view)
+        combined_output[i] = output
+        combined_warning[i] = warning
 
     end_time = time.time()
 
     print(f"Total runtime: {round(end_time-start_time, 4)}s")
 
-    print(f"Final Deployment: {solv1}")
-    if len(warning1) > 0:
-        print(f"\nWARNING: {warning1}")
+    print(f"Final Deployment (combined output): {combined_output}")
 
-    df_sol = pd.DataFrame(sol)
+    df_sol = pd.DataFrame(combined_output)
     print("\nsaving results...")
     if not os.path.exists(output_path):
         os.makedirs(output_path)
-    df_sol.to_csv(os.path.join(output_path, "results.csv"))
+    time_stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    df_sol.to_csv(os.path.join(output_path, f"output_{time_stamp}.csv"))
+    with open(os.path.join(output_path, f"warning_{time_stamp}.json"), "w") as outfile:
+        json.dump(combined_warning, outfile)
     print("DONE! :^)")
