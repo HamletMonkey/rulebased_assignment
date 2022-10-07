@@ -54,9 +54,9 @@ class RB:
     def __init__(self, excel_filename):
         self.excel_filename = excel_filename
         self.df_hptl = pd.read_excel(self.excel_filename, sheet_name="High Payoff Target List")
-        self.df_asset_ml = pd.read_excel(self.excel_filename, sheet_name="Asset Master List").drop([13, 14], axis=0)
-        self.df_asset_c = (pd.read_excel(self.excel_filename, sheet_name="Asset Capability Table").drop([1], axis=0).reset_index(drop=True))
-        self.df_sector = pd.read_excel(self.excel_filename, sheet_name="Sector").iloc[:3, :]
+        self.df_asset_ml = pd.read_excel(self.excel_filename, sheet_name="Asset Master List")
+        self.df_asset_c = pd.read_excel(self.excel_filename, sheet_name="Asset Capability Table")
+        self.df_sector = pd.read_excel(self.excel_filename, sheet_name="Sector")
         self.df_target_sel = pd.read_excel(self.excel_filename, sheet_name="Target Selection Standards")
         self.sectors = dict()
         self.target_unit_list = list()
@@ -65,7 +65,7 @@ class RB:
 
     def update_df(self):
         # 1. High Payoff Target List
-        self.df_hptl.set_index("Target Unit", inplace=True)
+        self.df_hptl.set_index("Target Designation", inplace=True)
         self.target_unit_list = list(self.df_hptl.index)
 
         # 2. Asset Master List
@@ -76,7 +76,7 @@ class RB:
         self.df_asset_ml["CMD/SUP"] = self.df_asset_ml["CMD/SUP"].apply(lambda x: 1 if x == "Organic" else 2)
 
         # 3. Asset Capability Table
-        self.df_asset_c.fillna(0, inplace=True)
+        self.df_asset_c.dropna(inplace=True)
         self.df_asset_c.set_index("Category", inplace=True)
 
         # 4. Sectors
@@ -276,7 +276,7 @@ def run(rb, weight_dict, view=True):
                         except:
                             warning_dict[idx] = {f"{selected_unit}": ["intent_lowered"]}
 
-                    # 2. timeliness warnings
+                    # 3. timeliness warnings
                     if timeliness_flag == 1 and selected_unit in exceed_t_temp.index:
                         try:
                             warning_dict[idx][selected_unit].append("timeliness_violation")
@@ -293,7 +293,7 @@ def run(rb, weight_dict, view=True):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--input_path", type=str, default="./xlsx_files/DMS_target_sample.xlsx"
+        "--input_path", type=str, default="./xlsx_files/DMS_target_sample_v2.xlsx"
     )
     parser.add_argument("--output_path", type=str, default="results")
     parser.add_argument("--intend_w", type=int, default=1000)
@@ -307,7 +307,7 @@ if __name__ == "__main__":
         action="store_true",
         help="view capable assets score breakdown for each target",
     )
-    parser.add_argument("--var_sol", type=int, default=3)
+    parser.add_argument("--var_sol", type=int, default=3, help="number of different solutions")
     args = parser.parse_args()
 
     filename = args.input_path
