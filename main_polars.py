@@ -42,20 +42,20 @@ intend_rank_dict = {
 
 ## -------------------- create relevant lazyframes
 class RB:
-    def __init__(self, csv_files):
-        self.csv_files = csv_files
-        self.lz_hptl = pl.scan_csv(os.path.join(self.csv_files, "hptl.csv"))
-        self.lz_sector = pl.scan_csv(os.path.join(self.csv_files, "sector.csv"))
-        self.lz_asset_ml = pl.scan_csv(os.path.join(self.csv_files, "asset_master_list.csv"))
-        self.lz_asset_c = pl.scan_csv(os.path.join(self.csv_files, "asset_capability_table.csv"))
-        self.lz_target_sel = pl.scan_csv(os.path.join(self.csv_files, "target_selection_standards.csv"))
+    def __init__(self, excel_filename):
+        self.excel_filename = excel_filename
+        self.df_hptl = pl.read_excel(self.excel_filename, sheet_name="High Payoff Target List")
+        self.df_asset_ml = pl.read_excel(self.excel_filename, sheet_name="Asset Master List").drop_nulls()
+        self.df_asset_c = pl.read_excel(self.excel_filename, sheet_name="Asset Capability Table")
+        self.df_sector = pl.read_excel(self.excel_filename, sheet_name="Sector")
+        self.df_target_sel = pl.read_excel(self.excel_filename, sheet_name="Target Selection Standards")
         self.status_check = "Unknown"  # default
         self.target_unit_list = list()
         self.sectors = dict()
         self.iea_dict = dict()
         self.mm = MinMaxScaler(feature_range=(1, 3))
         self.time_scaler = MinMaxScaler(feature_range=(2, 3))
-        self.q_unit_info = self.lz_asset_ml
+        self.q_unit_info = self.df_asset_ml.lazy() # lazy df
 
     def tidy_up(self):
         self.q_unit_info = (
@@ -72,18 +72,17 @@ class RB:
             )
             .drop_nulls()
         )
-        self.status_check = self.lz_hptl.select("Status").unique().collect().row(0)[0]
-        self.target_unit_list = (self.lz_hptl.select("Target Unit").collect().to_series().to_list())
+        self.status_check = self.df_hptl.select("Status").unique().row(0)[0]
+        self.target_unit_list = (self.df_hptl.select("Target Designation").to_series().to_list())
 
-        for i in range(len(self.lz_sector.collect())):
+        for i in range(len(self.df_sector)):
             all_points = list()
             for j in range(1, 9, 2):
-                all_points.append(list(self.lz_sector.collect().rows()[i][j : j + 2]))
-            self.sectors[self.lz_sector.collect().rows()[i][0]] = Polygon(all_points)
+                all_points.append(list(self.df_sector.rows()[i][j : j + 2]))
+            self.sectors[self.df_sector.rows()[i][0]] = Polygon(all_points)
 
         intend_dict_master = (
-            self.lz_asset_c.filter(pl.col("Category") != "0")
-            .collect()
+            self.df_asset_c.filter(pl.col("Category") != "0")
             .to_dict(as_series=False)
         )
         cat_count = intend_dict_master["Category"]
@@ -114,7 +113,7 @@ def run(rb, weight_dict, view=True):
     asset_dep_count = dict(zip(asset_unit_list, [0 for _ in range(len(asset_unit_list))]))
 
     for idx, tunit in enumerate(rb.target_unit_list):
-        print(f"target unit {idx+1}: {tunit}")
+        print(f"Target Designation {idx+1}: {tunit}")
         ## ---------- filter asset solution space based on count deployed - wrt decide and detect phase
         # decide phase - each organic asset can be deployed up to 3 targets
         if rb.status_check == "Unknown":
@@ -156,7 +155,7 @@ def run(rb, weight_dict, view=True):
             )
             # target location - check target falls in which sector
             acc_point = (
-                rb.lz_hptl.filter((pl.col("Target Unit") == tunit))
+                rb.df_hptl.lazy().filter((pl.col("Target Designation") == tunit))
                 .select(["Latitude", "Longitude"])
                 .collect()
                 .row(0)
@@ -169,7 +168,7 @@ def run(rb, weight_dict, view=True):
             for sec in acc_coverage:
                 temp = (df_unit_info.lazy().filter(pl.col(f"Sector {sec}") == 1).collect())
             dummy = pl.concat([dummy, temp])
-            # if no assets within sectors, continue to the next target unit
+            # if no assets within sectors, continue to the next target designation
             if len(dummy) == 0:
                 selected_unit = "NS-NC"
                 unit_deployed.append(selected_unit)
@@ -177,9 +176,9 @@ def run(rb, weight_dict, view=True):
                 print()
                 continue
             else:
-                ## ---------- get basic info of the target unit from df_hptl lazyframe - dictionary
+                ## ---------- get basic info of the target designation from df_hptl lazyframe - dictionary
                 hptl_info = (
-                    rb.lz_hptl.filter(pl.col("Target Unit") == tunit)
+                    rb.df_hptl.lazy().filter(pl.col("Target Designation") == tunit)
                     .select(
                         [
                             pl.col("Category"),
@@ -193,16 +192,16 @@ def run(rb, weight_dict, view=True):
                 )
                 print(f"acc hptl info: {hptl_info}")
 
-                ## ---------- get timeliness of each target unit from df_target_sel lazyframe
+                ## ---------- get timeliness of each target designation from df_target_sel lazyframe
                 acc_timeliness = (
-                    rb.lz_target_sel.filter(pl.col("Category") == hptl_info["Category"])
+                    rb.df_target_sel.lazy().filter(pl.col("Category") == hptl_info["Category"])
                     .select([pl.col("Timeliness (Mins)")])
                     .collect()
                     .to_numpy()[0, 0]
                 )
                 print(f"acc timeliness: {acc_timeliness}mins")
 
-                ## ---------- get distance between target unit and asset then filter based on Effective Radius
+                ## ---------- get distance between target designation and asset then filter based on Effective Radius
                 acc_points = (hptl_info["Latitude"], hptl_info["Longitude"])
                 dummy = (
                     dummy.lazy()
@@ -217,7 +216,7 @@ def run(rb, weight_dict, view=True):
                     .filter(pl.col("Distance") < pl.col("Effective Radius (km)"))
                     .collect()
                 )
-                # if no asset within range, continue to the next target unit
+                # if no asset within range, continue to the next target designation
                 if len(dummy) == 0:
                     selected_unit = "NS-OR"
                     unit_deployed.append(selected_unit)
@@ -294,7 +293,7 @@ def run(rb, weight_dict, view=True):
                         ).fill_null(1)
                         dummy = dummy.rename({"Time (mins)_right": "DerivedTime"})
 
-                    ## ---------- get intend of each asset with respect to each target unit + score
+                    ## ---------- get intend of each asset with respect to each target designation + score
                     # also dropping columns
                     right_intend_rank = intend_dict[hptl_info["Intend"]][hptl_info["Intend"]]
                     dummy = (
@@ -393,13 +392,13 @@ def run(rb, weight_dict, view=True):
 
                     # 2. lower intend warning
                     selected_unit_assType = (
-                        rb.lz_asset_ml.filter(pl.col("Unit") == selected_unit)
+                        rb.df_asset_ml.lazy().filter(pl.col("Unit") == selected_unit)
                         .select(pl.col("Asset Type"))
                         .collect()
                         .row(0)[0]
                     )
                     selected_unit_intend = (
-                        rb.lz_asset_c.filter(
+                        rb.df_asset_c.lazy().filter(
                             pl.col("Category") == hptl_info["Category"]
                         )
                         .select(pl.col(selected_unit_assType))
@@ -432,7 +431,7 @@ def run(rb, weight_dict, view=True):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_path", type=str, default="csv_files")
+    parser.add_argument("--input_path", type=str, default="./xlsx_files/DMS_target_sample_v2.xlsx")
     parser.add_argument("--output_path", type=str, default="results")
     parser.add_argument("--intend_w", type=int, default=1000)
     parser.add_argument("--cmdsup_w", type=int, default=100)
