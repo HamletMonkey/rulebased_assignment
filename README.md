@@ -56,7 +56,7 @@ rank_of_intent = {
 
 - Once an asset unit is assigned to a detected target unit, the asset unit is categorized as CONF assets (asset assigned to confirmed targets).
 
-- **Time Sensitive Target**: in the case where Time Sensitive Target is passed in, all asset categories (FREE, AUC, CONF) are allowed to be used.
+- **Time Sensitive Target**: in the case where Time-Sensitive Target is passed in, all asset categories (FREE, AUC, CONF) are allowed to be used; whereas for Non Time-Sensitive Target only FREE or AUC assets can be deployed.
 
 ***NOTE:***
 
@@ -85,77 +85,85 @@ rank_of_intent = {
 3. Run the code
 `python main.py`
 
-### Current Example of JSON input (Software Output)
+### Current Example of CSV input (Software Output)
 
 ***NOTE: subject to change***
 
-#### 1. acc_info:
-- represents the HPTL (High Priority Target List) passed in
+#### 1. High Payoff Target List (HPTL):
+- contains the information on all target passed in, the 2 tables below shows HPTL input in different phases
 
-```json
-{
-    "1A": {
-        "category": "MANOEUVRE_ARMOUR",
-        "size": "BATTALION",
-        "intent": "destroy",
-        "status": "decide",
-        "timeliness": 120,
-        "weapon_target":{
-            "neutralize":[
-                "AMX F3 STD-HE",
-                "PANZER2000",
-                "BM21 M-21OF-M"
-            ],
-            "destroy":[
-                "AH-64E ROCKETS"
-            ]
-        },
-        "intention_rank":{
-            "destroy":1,
-            "neutralize":2,
-            "suppress":3
-        }
-    }
-}
-```
+*Decide Phase:*
 
-#### 2. unit_info:
-- `cmdsup` is the asset type where 1 represents Organic and 2 represents Allocated asset
-- `frange` is the firing/ attack range of each asset unit
-- `asset_cat` is the asset category where 1 represents FREE, 2 represents AUC and 3 represents CONF asset
+| Priority | Category    | HPT             | Target Designation | Size    | Latitude    | Longitude   | Intend  | When        | Phase | Status  | Time-Sensitive | How |
+|:--------:|:-----------:|:---------------:|:------------------:|:-------:|:-----------:|:-----------:|:-------:|:-----------:|:-----:|:-------:|:--------------:|:---:|
+| 1        | Engineer    | Cbt Eng Vehicle | 10_12_30_1_1       | Team    | 24.56555556 | 51.20416667 | Destroy | As Acquired |       | Unknown | 0              |     |
+| 2        | Air Defence | ADA Radar       | 10_12_40_4         | Platoon | 24.32333333 | 51.23888889 | Destroy | As Acquired |       | Unknown | 0              |     |
 
-```json
-{
-    "A1": {
-        "asset_type": "AMX F3 STD-HE",
-        "cmdsup": 1,
-        "frange":15,
-        "asset_cat": "FREE"
-    },
-    "A2": {
-        "asset_type": "PANZER2000",
-        "cmdsup": 1,
-        "frange":20,
-        "asset_cat": "FREE"
-    }
-}
-```
+*Detect Phase*
 
-#### 3. time:
-- depending on the latitude and longitude coordinates of each asset unit, the derived time with respect to each target unit is different
+- `How` column contains asset assigned for each target as the DM algo output from Decide Phase
+- The asset assigned in Decide Phase (solution) is checked for its validity whenever any targets is detected in Detect Phase
+- If the asset assigned is still valid (see Priority 1 target below), the target will not be passed into the DM algo
+- However if the asset assigned in the Decide Phase is no longer valid (see Priority 2 target below), it will be passed into the DM algo to obtain the right asset for it
 
-```json
-{
-    "1A": {
-        "A1":5,
-        "A2":20,
-    },
-    "2A": {
-        "A1":15,
-        "A2":11,
-    }
-}
-```
+| Priority | Category       | HPT             | Target Designation | Size    | Latitude    | Longitude   | Intend  | When          | Phase | Status   | Time-Sensitive | How     |
+|:--------:|:--------------:|:---------------:|:------------------:|:-------:|:-----------:|:-----------:|:-------:|:-------------:|:-----:|:--------:|:--------------:|:-------:|
+| 1        | Engineer       | Cbt Eng Vehicle | 10_12_30_1_1       | Team    | 24.56555556 | 51.20416667 | Destroy | As Acquired   |       | Detected | 1              | 1_1_4_A |
+| 2        | Air Defence    | ADA Radar       | 10_12_40_4         | Platoon | 24.32333333 | 51.23888889 | Destroy | As Acquired   |       | Detected | 0              |         |
+| 3        | Fire Support   | 155-SPG         | 10_12_4_A          | Company | 24.37194444 | 51.11722222 | Destroy | As Acquired   |       | Unknown  | 0              | 1_5_1_B |
+| 4        | Fire   Support | 155-SPG         | 10_11_4_C          | Company | 24.52277778 | 50.66555556 | Destroy | As   Acquired |       | Unknown  | 0              | NS-NA   |
+
+
+#### 2. Asset Master List:
+- `Status` column represents the preparation time required for each asset: 0 indicates that the asset is available immediately
+- `Speed` column represents the traveling speed for each asset: 0 indicates that the asset has a fixed location (non-movable)
+- `Assignment` column represent the different category of each asset:
+   1. FREE: immediately available
+   2. AUC: Assigned to an unconfirmed target in Decide Phase
+   3. CONF: Asset that is on engaged in Detect Phase
+   4. RESERVED: Asset that is reserved in Detect Phase, should not be included in the solution space
+
+|   Category   | Asset Type |   Unit  | Qty |  CMD/SUP  |  Configuration  | Effective Radius (km) | Coverage | Status |   Latitude  |  Longitude  | Speed (Km/h) | Assignment |
+|:------------:|:----------:|:-------:|:---:|:---------:|:---------------:|:---------------------:|:--------:|:------:|:-----------:|:-----------:|:------------:|:----------:|
+| Fire Support | 155-SPG    | 1_1_4_A | 1   | Organic   | 155 gun         | 30                    | A        | 0      | 24.72638889 | 50.94138889 | 0            | RESERVED   |
+| Fire Support | 155-SPG    | 1_1_4_B | 1   | Organic   | 155 gun         | 30                    | B        | 0      | 24.6625     | 51.05722222 | 0            | FREE       |
+| Fire Support | 155-SPG    | 1_1_4_C | 1   | Organic   | 155 gun         | 30                    | C        | 0      | 24.68111111 | 51.2725     | 0            | AUC        |
+| Attack Heli  | AH         | 220_1_3 | 1   | Allocated | LGM/Rockets/Gun | 150                   | A, B, C  | 650    | 25.27722222 | 51.525      | 185.2        | CONF       |
+
+
+#### 3. Target Selection Standard:
+
+|   Category   | Timeliness (Mins) | Accuracy (m) |
+|:------------:|:-----------------:|:------------:|
+| Engineer     | 30                | 50           |
+| Fire Support | 60                | 100          |
+
+
+#### 4. Asset Capability Table:
+
+|   Category   |        AH       |   FGA   | 155-SPG | MLRS-LR | MLRS-SR |
+|:------------:|:---------------:|:-------:|:-------:|:-------:|:-------:|
+|              | LGM/Rockets/Gun | LGB/CB  | 155 gun | PGM     | Rocket  |
+| Engineer     | Destroy         | Destroy | Destroy | Destroy | Destroy |
+| Fire Support | Destroy         | Destroy | Destroy | Destroy | Destroy |
+
+
+#### 5. Weapon Target Table:
+
+|      Category     |     Size     | AH | FGA | 155-SPG | MLRS-LR | MLRS-SR |
+|:-----------------:|:------------:|:--:|:---:|:-------:|:-------:|:-------:|
+| Command & Control | Team         | 1  | 1   | 1       | 1       | 1       |
+| Command & Control | Command Post | 1  | 1   | 1       | 1       | 1       |
+| Air Defence       | Platoon      | 1  | 1   | 1       | 1       | 1       |
+
+
+#### 6. Sector:
+
+| Sector Name | P1 Latitude | P1 Longitude | P2 Latitude | P2 Longitude | P3 Latitude | P3 Longitude | P4 Latitude | P4 Longitude |
+|:-----------:|:-----------:|:------------:|:-----------:|:------------:|:-----------:|:------------:|:-----------:|:------------:|
+| A           | 24.86722222 | 50.83611111  | 24.55388889 | 50.36972222  | 24.16666667 | 50.8075      | 24.93444444 | 51.03944444  |
+| B           | 24.93444444 | 51.03944444  | 24.16666667 | 50.8075      | 24.17361111 | 51.20055556  | 24.90194444 | 51.10472222  |
+| C           | 24.90194444 | 51.10472222  | 24.17361111 | 51.20055556  | 24.25722222 | 51.60444444  | 24.70944444 | 51.45222222  |
 
 
 ### Output Solution
@@ -199,6 +207,18 @@ sample_individual = [
 2. Intent/ Capability (e.g. if intent can be fulfilled with allocated assets, we will pick it as solution)
 3. Deploy Count (Non-consecutive asset deployment - applicable across Organic and Allocated assets)
 4. Organic/ Allocated asset type
-5. FRange (Effective Range)
+5. FRange (Scaled effective range, distance between asset and target < asset's effective range)
 6. Timeliness (Derived Time = Prep Time + Travel Time)
 7. FREE/ AUC/ CONF asset cat
+
+*10 Oct 2022*:
+
+- Detect Phase
+
+1. Priority
+2. Intend
+3. Organic/ Allocated asset type
+4. FREE/ AUC/ CONF asset cat
+5. Status (Prep Time, value only for CONF assets)
+6. FRange (Scaled effective range, distance between asset and target < asset's effective range)
+7. Timeliness (Derived Time = Prep Time + Travel Time)
