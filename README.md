@@ -22,7 +22,7 @@ This case study is built as Decision Making System (DMS) for Military Case use.
 
 - Situation shall be handled based on the priority allocated - highest priority on top of the list, in descending order
 
-- In the event that the intended outcome such as destroy, neutralize etc. cannot be achieve (asset time or availability), the next level such as control shall be used as an outcome to manage the situation till the required asset is available.
+- In the event that the intended outcome such as destroy, neutralize etc. cannot be achieved (asset time or availability), the next level such as control shall be used as an outcome to manage the situation till the required asset is available.
 
 - Intent is allowed to be lowered up to 2 levels: e.g. from `destroy` to `suppress` in the case where asset with `neutralize` capability is not available
 
@@ -58,11 +58,11 @@ rank_of_intent = {
 
 - **Time Sensitive Target**: in the case where Time-Sensitive Target is passed in, all asset categories (FREE, AUC, CONF) are allowed to be used; whereas for Non Time-Sensitive Target only FREE or AUC assets can be deployed.
 
-***NOTE:***
+>***NOTE:***
 
-*1. A target which has no solution should be penalized the most irrespective of the priority.*
+>*1. A target which has no solution should be penalized the most irrespective of the priority.*
 
-*2. In the event to satisfy targets during detect phase, organic AUC asset (asset assigned to unconfirmed target) is preferred over a FREE allocated asset.*
+>*2. In the event to satisfy targets during detect phase, organic AUC asset (asset assigned to unconfirmed target) is preferred over a FREE allocated asset.*
 
 ### Sector/ Coverage
 
@@ -87,7 +87,9 @@ rank_of_intent = {
 
 ### Current Example of CSV input (Software Output)
 
-***NOTE: subject to change***
+>***NOTE:***
+
+> subject to change
 
 #### 1. High Payoff Target List (HPTL):
 - contains the information on all target passed in, the 2 tables below shows HPTL input in different phases
@@ -95,11 +97,11 @@ rank_of_intent = {
 *Decide Phase:*
 
 | Priority | Category    | HPT             | Target Designation | Size    | Latitude    | Longitude   | Intend  | When        | Phase | Status  | Time-Sensitive | How |
-|:--------:|:-----------:|:---------------:|:------------------:|:-------:|:-----------:|:-----------:|:-------:|:-----------:|:-----:|:-------:|:--------------:|:---:|
+|----------|-------------|-----------------|--------------------|---------|-------------|-------------|---------|-------------|-------|---------|----------------|-----|
 | 1        | Engineer    | Cbt Eng Vehicle | 10_12_30_1_1       | Team    | 24.56555556 | 51.20416667 | Destroy | As Acquired |       | Unknown | 0              |     |
 | 2        | Air Defence | ADA Radar       | 10_12_40_4         | Platoon | 24.32333333 | 51.23888889 | Destroy | As Acquired |       | Unknown | 0              |     |
 
-*Detect Phase*
+*Detect Phase:*
 
 - `How` column contains asset assigned for each target as the DM algo output from Decide Phase
 - The asset assigned in Decide Phase (solution) is checked for its validity whenever any targets is detected in Detect Phase
@@ -107,11 +109,11 @@ rank_of_intent = {
 - However if the asset assigned in the Decide Phase is no longer valid (see Priority 2 target below), it will be passed into the DM algo to obtain the right asset for it
 
 | Priority | Category       | HPT             | Target Designation | Size    | Latitude    | Longitude   | Intend  | When          | Phase | Status   | Time-Sensitive | How     |
-|:--------:|:--------------:|:---------------:|:------------------:|:-------:|:-----------:|:-----------:|:-------:|:-------------:|:-----:|:--------:|:--------------:|:-------:|
+|----------|----------------|-----------------|--------------------|---------|-------------|-------------|---------|---------------|-------|----------|----------------|---------|
 | 1        | Engineer       | Cbt Eng Vehicle | 10_12_30_1_1       | Team    | 24.56555556 | 51.20416667 | Destroy | As Acquired   |       | Detected | 1              | 1_1_4_A |
 | 2        | Air Defence    | ADA Radar       | 10_12_40_4         | Platoon | 24.32333333 | 51.23888889 | Destroy | As Acquired   |       | Detected | 0              |         |
 | 3        | Fire Support   | 155-SPG         | 10_12_4_A          | Company | 24.37194444 | 51.11722222 | Destroy | As Acquired   |       | Unknown  | 0              | 1_5_1_B |
-| 4        | Fire   Support | 155-SPG         | 10_11_4_C          | Company | 24.52277778 | 50.66555556 | Destroy | As   Acquired |       | Unknown  | 0              | NS-NA   |
+| 4        | Fire Support   | 155-SPG         | 10_11_4_C          | Company | 24.52277778 | 50.66555556 | Destroy | As   Acquired |       | Unknown  | 0              | NS-NA   |
 
 
 #### 2. Asset Master List:
@@ -124,7 +126,7 @@ rank_of_intent = {
    4. RESERVED: Asset that is reserved in Detect Phase, should not be included in the solution space
 
 |   Category   | Asset Type |   Unit  | Qty |  CMD/SUP  |  Configuration  | Effective Radius (km) | Coverage | Status |   Latitude  |  Longitude  | Speed (Km/h) | Assignment |
-|:------------:|:----------:|:-------:|:---:|:---------:|:---------------:|:---------------------:|:--------:|:------:|:-----------:|:-----------:|:------------:|:----------:|
+|--------------|------------|---------|-----|-----------|-----------------|-----------------------|----------|--------|-------------|-------------|--------------|------------|
 | Fire Support | 155-SPG    | 1_1_4_A | 1   | Organic   | 155 gun         | 30                    | A        | 0      | 24.72638889 | 50.94138889 | 0            | RESERVED   |
 | Fire Support | 155-SPG    | 1_1_4_B | 1   | Organic   | 155 gun         | 30                    | B        | 0      | 24.6625     | 51.05722222 | 0            | FREE       |
 | Fire Support | 155-SPG    | 1_1_4_C | 1   | Organic   | 155 gun         | 30                    | C        | 0      | 24.68111111 | 51.2725     | 0            | AUC        |
@@ -134,7 +136,7 @@ rank_of_intent = {
 #### 3. Target Selection Standard:
 
 |   Category   | Timeliness (Mins) | Accuracy (m) |
-|:------------:|:-----------------:|:------------:|
+|--------------|-------------------|--------------|
 | Engineer     | 30                | 50           |
 | Fire Support | 60                | 100          |
 
@@ -142,7 +144,7 @@ rank_of_intent = {
 #### 4. Asset Capability Table:
 
 |   Category   |        AH       |   FGA   | 155-SPG | MLRS-LR | MLRS-SR |
-|:------------:|:---------------:|:-------:|:-------:|:-------:|:-------:|
+|--------------|-----------------|---------|---------|---------|---------|
 |              | LGM/Rockets/Gun | LGB/CB  | 155 gun | PGM     | Rocket  |
 | Engineer     | Destroy         | Destroy | Destroy | Destroy | Destroy |
 | Fire Support | Destroy         | Destroy | Destroy | Destroy | Destroy |
@@ -151,7 +153,7 @@ rank_of_intent = {
 #### 5. Weapon Target Table:
 
 |      Category     |     Size     | AH | FGA | 155-SPG | MLRS-LR | MLRS-SR |
-|:-----------------:|:------------:|:--:|:---:|:-------:|:-------:|:-------:|
+|-------------------|--------------|----|-----|---------|---------|---------|
 | Command & Control | Team         | 1  | 1   | 1       | 1       | 1       |
 | Command & Control | Command Post | 1  | 1   | 1       | 1       | 1       |
 | Air Defence       | Platoon      | 1  | 1   | 1       | 1       | 1       |
@@ -160,25 +162,86 @@ rank_of_intent = {
 #### 6. Sector:
 
 | Sector Name | P1 Latitude | P1 Longitude | P2 Latitude | P2 Longitude | P3 Latitude | P3 Longitude | P4 Latitude | P4 Longitude |
-|:-----------:|:-----------:|:------------:|:-----------:|:------------:|:-----------:|:------------:|:-----------:|:------------:|
+|-------------|-------------|--------------|-------------|--------------|-------------|--------------|-------------|--------------|
 | A           | 24.86722222 | 50.83611111  | 24.55388889 | 50.36972222  | 24.16666667 | 50.8075      | 24.93444444 | 51.03944444  |
 | B           | 24.93444444 | 51.03944444  | 24.16666667 | 50.8075      | 24.17361111 | 51.20055556  | 24.90194444 | 51.10472222  |
 | C           | 24.90194444 | 51.10472222  | 24.17361111 | 51.20055556  | 24.25722222 | 51.60444444  | 24.70944444 | 51.45222222  |
 
+### Current Output Solution
 
-### Output Solution
+For target unit that has no solution, it will be indicated as:
+- `NS-NA`: no asset available
+- `NS-NC`: no asset within coverage (sector)
+- `NS-OR`: target is out of all assets' attack range
+
+Warning Message included:
+- `allocated_asset`: whenever an allocated asset is deployed to a target
+- `intend_lowered`: whenever an asset with lower level of capability is deployed instead of the original intend
+- `timeliness_violation`: whenever an asset which derived time is beyond the target's timeliness standard
 
 Asset unit selected for each target unit is represented as:
 
+*Decide Phase:*
+
 ```python
-sample_individual = [
-    A11, A5, A65, A23, A33, A9
-]
+# {target_unit: asset_unit_deployed}
+sample_unit_deployed = {
+    '10_13_40_3': '230_1_1',
+    '10_12_CP': '230_1_3',
+    '10_11_CP': 'NS-NC'
+}
+
+# {target_unit: {asset_unit_deployed: list of relevant warning messages}}
+sample_warning = {
+    '10_13_40_3': {'230_1_1':['allocated_asset']},
+    '10_12_CP': {'230_1_1':['allocated_asset','intend_lowered']},
+    '10_13_20_1_1': 'NS-NA'
+}
 ```
+
+*Detect Phase:*
+
+There would be additional output for deploying AUC assets in Detect Phase. This is to indicate which Target Unit will the AUC asset (assigned in Decide Phase) be deployed from.
+
+```python
+# {target_unit: target_unit_AUC_asset_from}
+sample_target_unit_taken = {
+    '10_12_40_4': '10_11_40_4',
+    '10_12_40_2': '10_11_40_2',
+    '10_12_40_1': '10_13_40_4'
+}
+```
+
+>***NOTE:***
+
+> running `main.py` saves result in a JSON file containing these 3 dictionaries and a CSV file
 
 ### How do we score each asset?
 
-**Weight Assignment:**
+The weight used in different phases is passed into the DM algo by specifying the JSON file path via argument `--weight`. We can also passed in more than one set of "weights" in the same JSON file to have the DM algo to produce different outputs in the same run.
+
+```json
+{
+    "1":
+        {
+            "Intend": 1000,
+            "CMD/SUP": 100,
+            "DeployCount": 10,
+            "FRange": 1,
+            "DerivedTime": 0.1
+        },
+    "2":
+        {
+            "Intend": 1000,
+            "DeployCount": 100,
+            "CMD/SUP": 10,
+            "FRange": 1,
+            "DerivedTime": 0.1
+        }
+}
+```
+
+**Updates on Weight Assignment:**
 
 *27 Sept 2022*:
 
