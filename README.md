@@ -59,10 +59,8 @@ rank_of_intent = {
 - **Time Sensitive Target**: in the case where Time-Sensitive Target is passed in, all asset categories (FREE, AUC, CONF) are allowed to be used; whereas for Non Time-Sensitive Target only FREE or AUC assets can be deployed.
 
 >***NOTE:***
-
->*1. A target which has no solution should be penalized the most irrespective of the priority.*
-
->*2. In the event to satisfy targets during detect phase, organic AUC asset (asset assigned to unconfirmed target) is preferred over a FREE allocated asset.*
+    *1. A target which has no solution should be penalized the most irrespective of the priority.*
+    *2. In the event to satisfy targets during detect phase, organic AUC asset (asset assigned to unconfirmed target) is preferred over a FREE allocated asset.*
 
 ### Sector/ Coverage
 
@@ -87,21 +85,19 @@ rank_of_intent = {
 
 ### Current Example of CSV input (Software Output)
 
->***NOTE:***
-
-> subject to change
+>***NOTE:*** subject to change
 
 #### 1. High Payoff Target List (HPTL):
 - contains the information on all target passed in, the 2 tables below shows HPTL input in different phases
 
-*Decide Phase:*
+- *Decide Phase:*
 
 | Priority | Category    | HPT             | Target Designation | Size    | Latitude    | Longitude   | Intend  | When        | Phase | Status  | Time-Sensitive | How |
 |----------|-------------|-----------------|--------------------|---------|-------------|-------------|---------|-------------|-------|---------|----------------|-----|
 | 1        | Engineer    | Cbt Eng Vehicle | 10_12_30_1_1       | Team    | 24.56555556 | 51.20416667 | Destroy | As Acquired |       | Unknown | 0              |     |
 | 2        | Air Defence | ADA Radar       | 10_12_40_4         | Platoon | 24.32333333 | 51.23888889 | Destroy | As Acquired |       | Unknown | 0              |     |
 
-*Detect Phase:*
+- *Detect Phase:*
 
 - `How` column contains asset assigned for each target as the DM algo output from Decide Phase
 - The asset assigned in Decide Phase (solution) is checked for its validity whenever any targets is detected in Detect Phase
@@ -181,7 +177,7 @@ Warning Message included:
 
 Asset unit selected for each target unit is represented as:
 
-*Decide Phase:*
+- *Decide Phase:*
 
 ```python
 # {target_unit: asset_unit_deployed}
@@ -199,7 +195,7 @@ sample_warning = {
 }
 ```
 
-*Detect Phase:*
+- *Detect Phase:*
 
 There would be additional output for deploying AUC assets in Detect Phase. This is to indicate which Target Unit will the AUC asset (assigned in Decide Phase) be deployed from.
 
@@ -212,9 +208,7 @@ sample_target_unit_taken = {
 }
 ```
 
->***NOTE:***
-
-> running `main.py` saves result in a JSON file containing these 3 dictionaries and a CSV file
+>***NOTE:*** running `main.py` saves result in a JSON file containing these 3 dictionaries and a CSV file
 
 ### How do we score each asset?
 
