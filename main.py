@@ -22,11 +22,17 @@ if __name__ == "__main__":
         action="store_true",
         help="view capable assets score breakdown for each target",
     )
+    parser.add_argument(
+        "--save",
+        default=False,
+        action="store_true",
+        help="save output into csv file and JSON file",
+    )
     args = parser.parse_args()
 
     filename = args.input_path
     output_path = args.output_path
-
+  
     case = RB(filename)
     case.tidy_up()
     weight = get_weight_dict(args.weight_path)
@@ -49,25 +55,26 @@ if __name__ == "__main__":
         if 'target_unit_taken' in combined_output[k]:
             print(f"Asset deployed from Target Unit {int(k)}: {combined_output[k]['target_unit_taken']}\n")
 
-    print("\nsaving results...")
-    if not os.path.exists(output_path):
-        os.makedirs(output_path)
-
-    for k,v in combined_output.items():
-        # 1. unit deployed
-        how_col = v['unit_deployed']
-        case.df_hptl.loc[list(how_col.keys()), "How"] = list(how_col.values())
-        # 2. detect phase only: target unit AUC asset taken from
-        if case.status_flag == 1:
-            tu_taken_col = v['target_unit_taken']
-            case.df_hptl.loc[list(tu_taken_col.keys()), "Target Unit-Decide"] = list(tu_taken_col.values())
-        # 3. warning message
-        warn_col = v['warning']
-        if len(warn_col)!=0:
-            case.df_hptl.loc[list(warn_col.keys()), "Warning"] = list(warn_col.values())
-        case.df_hptl.to_excel(os.path.join(output_path, f"result_{k}_dec1.xlsx"))
+    if args.save:
+        print("\nsaving results...")
+        if not os.path.exists(output_path):
+            os.makedirs(output_path)
     
-    with open(os.path.join(output_path, f"output_{k}_dec1.json"), "w") as outfile:
-        json.dump(combined_output, outfile)
+        for k,v in combined_output.items():
+            # 1. unit deployed
+            how_col = v['unit_deployed']
+            case.df_hptl.loc[list(how_col.keys()), "How"] = list(how_col.values())
+            # 2. detect phase only: target unit AUC asset taken from
+            if case.status_flag == 1:
+                tu_taken_col = v['target_unit_taken']
+            case.df_hptl.loc[list(tu_taken_col.keys()), "Target Unit-Decide"] = list(tu_taken_col.values())
+            # 3. warning message
+            warn_col = v['warning']
+            if len(warn_col)!=0:
+                case.df_hptl.loc[list(warn_col.keys()), "Warning"] = list(warn_col.values())
+            case.df_hptl.to_excel(os.path.join(output_path, f"result_{k}_dec1.xlsx"))
+        
+        with open(os.path.join(output_path, f"output.json"), "w") as outfile:
+            json.dump(combined_output, outfile)
 
     print("DONE! :^)")
