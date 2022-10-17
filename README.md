@@ -80,8 +80,11 @@ rank_of_intent = {
 2. Install dependencies
 `pip install -r requirements.txt`
 
-3. Run the code
-`python main.py`
+3. Run the code:
+
+    - `python main.py` - using [`Pandas`](https://pandas.pydata.org/docs/user_guide/index.html) library
+
+    - `python main_polars.py` - using [`Polars`](https://pola-rs.github.io/polars-book/user-guide/) library
 
 ### Current Example of CSV input (Software Output)
 
