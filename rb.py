@@ -248,77 +248,56 @@ def run(rb_case, weight_dict, view=True):
                     )
 
                     ## ---------- get the score for each asset
-                    df_temp = df_unit_sub.copy(deep=True)
+                    df_temp = pd.DataFrame()
                     for item, weight in weight_dict.items():
-                        df_temp.loc[:, item] = df_temp.loc[:, item].apply(
+                        df_temp.loc[:, item] = df_unit_sub.loc[:, item].apply(
                             lambda x: x * weight
                         )
-                    if rb_case.status_flag == 0:
-                        df_unit_sub.loc[:, "score"] = (
-                            df_temp["Intend"]
-                            + df_temp["CMD/SUP"]
-                            + df_temp["DeployCount"]
-                            + df_temp["FRange"]
-                            + df_temp["DerivedTime"]
-                        )
-                    else:
-                        df_unit_sub.loc[:, "score"] = (
-                            df_temp["Intend"]
-                            + df_temp["CMD/SUP"]
-                            + df_temp['Status']
-                            + df_temp["Assignment"]
-                            + df_temp["FRange"]
-                            + df_temp["DerivedTime"]
-                        )
+                    df_unit_sub.loc[:, "score"] = df_temp.sum(axis=1)
                     sorted_df = df_unit_sub.sort_values(by=["score"])
                     if view:
                         print(sorted_df)
 
-                    score_list = sorted(list(sorted_df["score"].unique()))
-                    min_score = score_list.pop(0)
-                    sub_asset_list = list(sorted_df.loc[sorted_df["score"] == min_score, :].index)
-                    selected_unit = random.sample(sub_asset_list, 1)[0]
+                    ## ---------- Decide Phase asset assignment ---------- ##
+                    if rb_case.status_flag ==0:
+                        score_list = sorted(list(sorted_df["score"].unique()))
+                        min_score = score_list.pop(0)
+                        sub_asset_list = list(sorted_df.loc[sorted_df["score"] == min_score, :].index)
+                        selected_unit = random.sample(sub_asset_list, 1)[0]
                     
                     ## ---------- Detect Phase asset assignment - V2 ---------- ##
-                    if rb_case.status_flag == 1:
-                        if sorted_df.loc[selected_unit, 'Assignment'] != 1: # either AUC or CONF (for time-sensitive targets)
-                            print('Selected Asset is NOT FREE asset!')
-                            df_hptl_below = rb_case.df_hptl.loc[
-                                (rb_case.df_hptl['How'].isin(sorted_df.index)) &
-                                (rb_case.df_hptl['Priority']>acc_priority), :]
-                            if len(df_hptl_below) <= 0: # all possible solutions are above current rank
-                                print('All possible solution is above current priority')
-                                # check if there's FREE assets available in sorted df (next best option)
-                                slice_free = sorted_df.loc[sorted_df['Assignment']==1,:]
-                                if len(slice_free) > 0:
-                                    selected_unit = slice_free.index[0]
+                    else:
+                        df_hptl_below = rb_case.df_hptl.loc[
+                            (rb_case.df_hptl['How'].isin(sorted_df.index)) &
+                            (rb_case.df_hptl['Priority']>acc_priority), :]
+                        if len(df_hptl_below) <= 0: # all possible solutions are above current rank
+                            print('All possible solution is above current priority')
+                            # check if there's FREE assets available in sorted df -- above: irregardless of other criteria
+                            slice_free = sorted_df.loc[sorted_df['Assignment']==1,:]
+                            if len(slice_free) > 0:
+                                selected_unit = slice_free.index[0]
+                                selected_target_unit = 'FA'
+                            else:
+                                df_hptl_above = rb_case.df_hptl.loc[
+                                    (rb_case.df_hptl['How'].isin(sorted_df.index)), :]
+                                df_hptl_above = df_hptl_above.sort_values(by=['Priority'])
+                                print(df_hptl_above)
+                                selected_unit = df_hptl_above.iloc[-1,-1]
+                                # get the target unit where the AUC asset is deployed from
+                                selected_target_unit = df_hptl_above.loc[df_hptl_above['How']==selected_unit, :].index[-1]
+                        else: # there are assets below current rank
+                            asset_below = set(df_hptl_below.loc[:, 'How'])
+                            print(f'There are possible solutions below current priority: {asset_below}')
+                            print(f'All units in current solution space: {sorted_df.index}')
+                            for unit in sorted_df.index:
+                                if sorted_df.loc[unit,'Assignment']==1: # free asset available as next best option
+                                    selected_unit = unit
                                     selected_target_unit = 'FA'
-                                else:
-                                    df_hptl_above = rb_case.df_hptl.loc[
-                                        (rb_case.df_hptl['How'].isin(sorted_df.index)) &
-                                        (rb_case.df_hptl['Priority']<acc_priority), :]
-                                    df_hptl_above = df_hptl_above.sort_values(by=['Priority'])
-                                    print(df_hptl_above)
-                                    selected_unit = df_hptl_above.iloc[-1,-1]
-                                    # get the target unit where the AUC asset is deployed from
-                                    selected_target_unit = df_hptl_above.loc[df_hptl_above['How']==selected_unit, :].index[-1]
-                            else: # there are assets below current rank
-                                asset_below = set(df_hptl_below.loc[:, 'How'])
-                                print(f'There are possible solutions below current priority: {asset_below}')
-                                print(f'All units in current solution space: {sorted_df.index}')
-                                while True:
-                                    for unit in sorted_df.index:
-                                        if sorted_df.loc[unit,'Assignment']==1: # free asset available as next best option
-                                            selected_unit = unit
-                                            selected_target_unit = 'FA'
-                                            break
-                                        elif unit in asset_below:
-                                            selected_unit = unit
-                                            selected_target_unit = df_hptl_below.loc[df_hptl_below['How']==selected_unit, :].index[-1]
-                                            break
                                     break
-                        else:
-                            selected_target_unit = 'FA' # free asset
+                                elif unit in asset_below:
+                                    selected_unit = unit
+                                    selected_target_unit = df_hptl_below.loc[df_hptl_below['How']==selected_unit, :].index[-1]
+                                    break
                         target_unit_taken[idx] = selected_target_unit
                     
                     if not selected_unit.startswith("NS"):
