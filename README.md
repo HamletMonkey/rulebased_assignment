@@ -82,9 +82,15 @@ rank_of_intent = {
 
 3. Run the code:
 
-    - `python main.py` - using [`Pandas`](https://pandas.pydata.org/docs/user_guide/index.html) library
+    - using [`Pandas`](https://pandas.pydata.org/docs/user_guide/index.html) library
+        ```PowerShell
+        python main.py --input_path ./xlsx_files/dec_phase1.xlsx --output_path ./result --weight ./weight_decide.json --view --save
+        ```
 
-    - `python main_polars.py` - using [`Polars`](https://pola-rs.github.io/polars-book/user-guide/) library
+    - using [`Polars`](https://pola-rs.github.io/polars-book/user-guide/) library
+        ```PowerShell
+        python main_polars.py --input_path ./xlsx_files/dec_phase1.xlsx --output_path ./result --weight ./weight_decide.json --view --save
+        ```
 
 ### Current Example of CSV input (Software Output)
 
@@ -279,6 +285,6 @@ The weight used in different phases is passed into the DM algo by specifying the
 2. Intend
 3. Organic/ Allocated asset type
 4. FREE/ AUC/ CONF asset cat
-5. Status (Prep Time, value only for CONF assets)
+5. Status (Prep Time, value only for CONF assets) --> to be confirmed
 6. FRange (Scaled effective range, distance between asset and target < asset's effective range)
 7. Timeliness (Derived Time = Prep Time + Travel Time)
