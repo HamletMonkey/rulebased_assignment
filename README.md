@@ -244,7 +244,32 @@ The weight used in different phases is passed into the DM algo by specifying the
 }
 ```
 
-**Updates on Weight Assignment:**
+**Updates on Sorting Method:**
+
+Another approach is to sort the DataFrame columns according to their importance rank. With this, the relevant columns does not have to be scaled. This version of code is created under `sort_wo_score` branch, where the JSON file for weight input is slightly different:
+
+```json
+{
+    "1":
+    [
+        "Intend",
+        "CMD/SUP",
+        "DeployCount",
+        "Effective Radius (km)",
+        "DerivedTime"
+    ],
+    "2":
+    [
+        "Intend",
+        "DeployCount",
+        "CMD/SUP",
+        "Effective Radius (km)",
+        "DerivedTime"
+    ]
+}
+```
+
+**Updates on Ranking Assignment:**
 
 *27 Sept 2022*:
 
@@ -285,6 +310,6 @@ The weight used in different phases is passed into the DM algo by specifying the
 2. Intend
 3. Organic/ Allocated asset type
 4. FREE/ AUC/ CONF asset cat
-5. Status (Prep Time, value only for CONF assets) --> to be confirmed
+5. Status (Prep Time, value only for CONF assets) --> *might not be in used, to be confirmed*
 6. FRange (Scaled effective range, distance between asset and target < asset's effective range)
 7. Timeliness (Derived Time = Prep Time + Travel Time)
