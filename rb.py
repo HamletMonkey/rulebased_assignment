@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import json
 import random
-from sklearn.preprocessing import MinMaxScaler
+# from sklearn.preprocessing import MinMaxScaler
 
 from shapely.geometry import Polygon, Point
 from haversine import haversine
@@ -40,8 +40,8 @@ intend_rank_dict = {
     "Destroy": destroy_rank,
 }
 
-mm = MinMaxScaler(feature_range=(1, 3))
-twothree_scaler = MinMaxScaler(feature_range=(2, 3))
+# mm = MinMaxScaler(feature_range=(1, 3))
+# twothree_scaler = MinMaxScaler(feature_range=(2, 3))
 
 ## -------------------- create relevant dataframes
 class RB:
@@ -100,7 +100,7 @@ def get_weight_dict(json_input):
     return weight_dict
 
 
-def run(rb_case, weight_dict, view=True):
+def run(rb_case, weight, view=True):
 
     warning_dict = dict()
     output = dict()
@@ -200,11 +200,11 @@ def run(rb_case, weight_dict, view=True):
                     continue
                 else:
                     # scaling of range
-                    df_unit_sub.loc[:, "FRange"] = mm.fit_transform(
-                        np.array(
-                            df_unit_sub["Effective Radius (km)"].values.reshape(-1, 1)
-                        )
-                    )
+                    # df_unit_sub.loc[:, "FRange"] = mm.fit_transform(
+                    #     np.array(
+                    #         df_unit_sub["Effective Radius (km)"].values.reshape(-1, 1)
+                    #     )
+                    # )
 
                     ## ----------- time related
                     df_unit_sub.loc[:, "Time (s)"] = df_unit_sub.apply(lambda x: safe_division(x["Distance"], x["Speed (Km/h)"]) * 3600, axis=1,)  # in seconds
@@ -212,24 +212,23 @@ def run(rb_case, weight_dict, view=True):
                     # if assets beyond timeliness, will be scaled to value ranging from 2-3
                     if (len(exceed_t_temp) > 0):
                         timeliness_flag = 1
-                        df_unit_sub.loc[
-                            exceed_t_temp.index, "DerivedTime"
-                        ] = twothree_scaler.fit_transform(
-                            np.array(exceed_t_temp["Time (s)"].values.reshape(-1, 1))
-                        )
-                        df_unit_sub.loc[
-                            ~df_unit_sub.index.isin(exceed_t_temp.index), "DerivedTime"
-                        ] = float(1)
+                        # df_unit_sub.loc[
+                        #     exceed_t_temp.index, "DerivedTime"
+                        # ] = twothree_scaler.fit_transform(
+                        #     np.array(exceed_t_temp["Time (s)"].values.reshape(-1, 1))
+                        # )
+                        df_unit_sub.loc[exceed_t_temp.index, "DerivedTime"] = df_unit_sub.loc[exceed_t_temp.index, "Time (s)"]
+                        df_unit_sub.loc[~df_unit_sub.index.isin(exceed_t_temp.index), "DerivedTime"] = float(1)
                     # else all assets are within timeliness - all assets derived time is set to 1 (no preference)
                     else:
                         timeliness_flag = 0
                         df_unit_sub.loc[:, "DerivedTime"] = float(1)
 
-                    ## ---------- status related
-                    conf_asset_list = df_unit_sub.loc[df_unit_sub['Status']>0, :].index
-                    if len(conf_asset_list)>0:
-                        df_unit_sub.loc[conf_asset_list, 'Status'] = twothree_scaler.fit_transform(df_unit_sub.loc[conf_asset_list, 'Status'].values.reshape(-1,1))
-                    df_unit_sub.loc[df_unit_sub['Status']==0, 'Status'] = 1
+                    ## ---------- status related --> new update TBC
+                    # conf_asset_list = df_unit_sub.loc[df_unit_sub['Status']>0, :].index
+                    # if len(conf_asset_list)>0:
+                    #     df_unit_sub.loc[conf_asset_list, 'Status'] = twothree_scaler.fit_transform(df_unit_sub.loc[conf_asset_list, 'Status'].values.reshape(-1,1))
+                    # df_unit_sub.loc[df_unit_sub['Status']==0, 'Status'] = 1
                     
                     ## ---------- intend related
                     right_intend_rank = intend_dict[right_intend][right_intend]
@@ -239,7 +238,7 @@ def run(rb_case, weight_dict, view=True):
                         columns=[
                             "Qty",
                             "Configuration",
-                            "Effective Radius (km)",
+                            # "Effective Radius (km)",
                             "Coverage",
                             "Latitude",
                             "Longitude",
@@ -248,22 +247,23 @@ def run(rb_case, weight_dict, view=True):
                     )
 
                     ## ---------- get the score for each asset
-                    df_temp = pd.DataFrame()
-                    for item, weight in weight_dict.items():
-                        df_temp.loc[:, item] = df_unit_sub.loc[:, item].apply(
-                            lambda x: x * weight
-                        )
-                    df_unit_sub.loc[:, "score"] = df_temp.sum(axis=1)
-                    sorted_df = df_unit_sub.sort_values(by=["score"])
+                    # df_temp = pd.DataFrame()
+                    # for item, w in weight.items():
+                    #     df_temp.loc[:, item] = df_unit_sub.loc[:, item].apply(
+                    #         lambda x: x * w
+                    #     )
+                    # df_unit_sub.loc[:, "score"] = df_temp.sum(axis=1)
+                    sorted_df = df_unit_sub.sort_values(by=weight)
                     if view:
                         print(sorted_df)
 
                     ## ---------- Decide Phase asset assignment ---------- ##
                     if rb_case.status_flag ==0:
-                        score_list = sorted(list(sorted_df["score"].unique()))
-                        min_score = score_list.pop(0)
-                        sub_asset_list = list(sorted_df.loc[sorted_df["score"] == min_score, :].index)
-                        selected_unit = random.sample(sub_asset_list, 1)[0]
+                        # score_list = sorted(list(sorted_df["score"].unique()))
+                        # min_score = score_list.pop(0)
+                        # sub_asset_list = list(sorted_df.loc[sorted_df["score"] == min_score, :].index)
+                        # selected_unit = random.sample(sub_asset_list, 1)[0]
+                        selected_unit = sorted_df.index[0]
                     
                     ## ---------- Detect Phase asset assignment - V2 ---------- ##
                     else:
