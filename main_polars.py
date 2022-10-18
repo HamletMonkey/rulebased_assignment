@@ -2,7 +2,7 @@ import os
 
 import polars as pl
 import json
-import random
+# import random
 
 
 from shapely.geometry import Polygon, Point
@@ -99,17 +99,17 @@ def get_weight_dict(json_input):
         weight_dict = json.loads(f.read())
     return weight_dict
 
-def minmax_standard(s, min_val, max_val):
-    scaled_s = ((s -min(s)) / (max(s)-min(s))) *(max_val-min_val) + min_val
-    return scaled_s
+# def minmax_standard(s, min_val, max_val):
+#     scaled_s = ((s -min(s)) / (max(s)-min(s))) *(max_val-min_val) + min_val
+#     return scaled_s
 
-def minmax_cond(col:str, predicate: pl.Expr, min_val, max_val):
-    x = pl.col(col)
-    x_min = x.filter(predicate).min()
-    x_max = x.filter(predicate).max()
-    return ((x-x_min) / (x_max-x_min)) * (max_val-min_val) + min_val
+# def minmax_cond(col:str, predicate: pl.Expr, min_val, max_val):
+#     x = pl.col(col)
+#     x_min = x.filter(predicate).min()
+#     x_max = x.filter(predicate).max()
+#     return ((x-x_min) / (x_max-x_min)) * (max_val-min_val) + min_val
 
-def run(rb, weight_dict, view=True):
+def run(rb, weight, view=True):
 
     warning_dict = dict()
     output = dict()
@@ -214,8 +214,8 @@ def run(rb, weight_dict, view=True):
                     .select([pl.col("Timeliness (Mins)")])
                     .collect()
                     .to_numpy()[0, 0]
-                )
-                print(f"acc timeliness: {acc_timeliness}mins")
+                ) *60 # to seconds
+                print(f"acc timeliness: {acc_timeliness} secs")
 
                 ## ---------- get distance between target designation and asset then filter based on Effective Radius
                 acc_points = (hptl_info["Latitude"], hptl_info["Longitude"])
@@ -242,7 +242,7 @@ def run(rb, weight_dict, view=True):
                         [
                             pl.col("*"),
                             (pl.col("Distance") / pl.col("Speed (Km/h)") * 3600).alias("Time (secs)"),
-                            pl.col("Effective Radius (km)").map(lambda x: minmax_standard(x,1,3)).alias("FRange")
+                            # pl.col("Effective Radius (km)").map(lambda x: minmax_standard(x,1,3)).alias("FRange")
                         ]
                     ).with_columns(
                         [
@@ -262,23 +262,24 @@ def run(rb, weight_dict, view=True):
                         timeliness_flag = 1
                         timeliness_pred = pl.col('Time (secs)')>acc_timeliness
                         dummy = dummy.with_column(
-                            pl.when(timeliness_pred).then(minmax_cond('Time (secs)', timeliness_pred, 2,3)).otherwise(1).alias('DerivedTime')
+                            # pl.when(timeliness_pred).then(minmax_cond('Time (secs)', timeliness_pred, 2,3)).otherwise(1).alias('DerivedTime')
+                            pl.when(timeliness_pred).then(pl.col('Time (secs)')).otherwise(1).alias('DerivedTime')
                         ).fill_nan(1)
                         exceed_t_units = dummy.filter(pl.col("DerivedTime")>1).select("Unit").to_series()
                     
                     ## --------- get Status in scale, anything within readily avail (0) is 1, larger than 0 will be scaled between 2 and 3 --> Status column
-                    if dummy.filter(pl.col("Status") > 0).is_empty():
-                        dummy = dummy.with_columns(
-                            [
-                                pl.exclude("Status"),
-                                pl.lit(1).alias("Status")  # result in integer
-                            ]
-                        )
-                    else:
-                        status_pred = pl.col("Status")>0
-                        dummy = dummy.with_column(
-                            pl.when(status_pred).then(minmax_cond("Status", status_pred, 2,3)).otherwise(1).keep_name()
-                        )
+                    # if dummy.filter(pl.col("Status") > 0).is_empty():
+                    #     dummy = dummy.with_columns(
+                    #         [
+                    #             pl.exclude("Status"),
+                    #             pl.lit(1).alias("Status")  # result in integer
+                    #         ]
+                    #     )
+                    # else:
+                    #     status_pred = pl.col("Status")>0
+                    #     dummy = dummy.with_column(
+                    #         pl.when(status_pred).then(minmax_cond("Status", status_pred, 2,3)).otherwise(1).keep_name()
+                    #     )
 
                     ## ---------- get intend of each asset with respect to each target designation + score
                     # also dropping columns
@@ -289,11 +290,13 @@ def run(rb, weight_dict, view=True):
                             (pl.col("Asset Type").apply(
                                 lambda x: intend_dict[rb.iea_dict[hptl_info["Category"]][x]][rb.iea_dict[hptl_info["Category"]][x]]
                             ).alias("Intend")),
-                            (pl.exclude(["Qty","Configuration","Effective Radius (km)","Coverage","Latitude","Longitude","Speed (Km/h)"]))
+                            (pl.exclude(["Qty","Configuration","Coverage","Latitude","Longitude","Speed (Km/h)"]))
                         ]
-                    ).with_column(
-                        pl.sum([pl.col(i)*weight_dict[i] for i in weight_dict.keys()]).alias('Score')
-                    ).sort("Score")
+                    # ).with_column(
+                    #     pl.sum([pl.col(i)*weight_dict[i] for i in weight_dict.keys()]).alias('Score')
+                    # ).sort("Score")
+                    ).sort([pl.col(x) for x in weight])
+
 
                     # glimpse of dataframe
                     if view:
@@ -302,25 +305,26 @@ def run(rb, weight_dict, view=True):
                     ## ---------- assigning of asset to deploy
                     ## ---------- Decide Phase asset assignment ---------- ##
                     if rb.status_flag == 0:
-                        score_list = sorted(
-                            dummy.lazy()
-                            .select(pl.col("Score"))
-                            .collect()
-                            .to_series()
-                            .to_list()
-                        )
-                        min_score = score_list.pop(0)
-                        # sub asset list for assets with the same (lowest) score
-                        sub_asset_list = (
-                            dummy.lazy()
-                            .filter(pl.col("Score") == min_score)
-                            .select(pl.col("Unit"))
-                            .collect()
-                            .to_series()
-                            .to_list()
-                        )
-                        print(f'sub asset list: {sub_asset_list}')
-                        selected_unit = random.sample(sub_asset_list, 1)[0]
+                        # score_list = sorted(
+                        #     dummy.lazy()
+                        #     .select(pl.col("Score"))
+                        #     .collect()
+                        #     .to_series()
+                        #     .to_list()
+                        # )
+                        # min_score = score_list.pop(0)
+                        # # sub asset list for assets with the same (lowest) score
+                        # sub_asset_list = (
+                        #     dummy.lazy()
+                        #     .filter(pl.col("Score") == min_score)
+                        #     .select(pl.col("Unit"))
+                        #     .collect()
+                        #     .to_series()
+                        #     .to_list()
+                        # )
+                        # print(f'sub asset list: {sub_asset_list}')
+                        # selected_unit = random.sample(sub_asset_list, 1)[0]
+                        selected_unit = dummy.select(pl.col('Unit')).row(0)[0]
                     ## ---------- Detext Phase asset assignment V2 ---------- ##
                     else:
                         sorted_df_units = dummy.select(pl.col("Unit")).to_series().to_list()
@@ -421,11 +425,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         # "--input_path", type=str, default="./xlsx_files/decide_phase/DMS_target_sample_v2.xlsx"
-        "--input_path", type=str, default="./xlsx_files/detect_phase/DMS_target_sample_det3_tsensitive.xlsx"
+        "--input_path", type=str, default="./xlsx_files/detect_phase/DMS_target_sample_det1_non_tsensitive.xlsx"
     )
     parser.add_argument("--output_path", type=str, default="trial")
-    # parser.add_argument("--weight_path", type=str, default="./weight_decide.json")
-    parser.add_argument("--weight_path", type=str, default="./weight_detect.json")
+    # parser.add_argument("--weight_path", type=str, default="./weight_decide_ns.json")
+    parser.add_argument("--weight_path", type=str, default="./weight_detect_ns.json")
     parser.add_argument(
         "--view",
         default=False,
