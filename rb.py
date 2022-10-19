@@ -1,12 +1,8 @@
 import warnings
-
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-import numpy as np
 import pandas as pd
 import json
-import random
-# from sklearn.preprocessing import MinMaxScaler
 
 from shapely.geometry import Polygon, Point
 from haversine import haversine
@@ -200,12 +196,6 @@ def run(rb_case, weight, view=True):
                     print()
                     continue
                 else:
-                    # scaling of range
-                    # df_unit_sub.loc[:, "FRange"] = mm.fit_transform(
-                    #     np.array(
-                    #         df_unit_sub["Effective Radius (km)"].values.reshape(-1, 1)
-                    #     )
-                    # )
 
                     ## ----------- time related
                     df_unit_sub.loc[:, "Time (s)"] = df_unit_sub.apply(lambda x: safe_division(x["Distance"], x["Speed (Km/h)"]) * 3600, axis=1,)  # in seconds
@@ -213,23 +203,12 @@ def run(rb_case, weight, view=True):
                     # if assets beyond timeliness, will be scaled to value ranging from 2-3
                     if (len(exceed_t_temp) > 0):
                         timeliness_flag = 1
-                        # df_unit_sub.loc[
-                        #     exceed_t_temp.index, "DerivedTime"
-                        # ] = twothree_scaler.fit_transform(
-                        #     np.array(exceed_t_temp["Time (s)"].values.reshape(-1, 1))
-                        # )
                         df_unit_sub.loc[exceed_t_temp.index, "DerivedTime"] = df_unit_sub.loc[exceed_t_temp.index, "Time (s)"]
                         df_unit_sub.loc[~df_unit_sub.index.isin(exceed_t_temp.index), "DerivedTime"] = float(1)
                     # else all assets are within timeliness - all assets derived time is set to 1 (no preference)
                     else:
                         timeliness_flag = 0
                         df_unit_sub.loc[:, "DerivedTime"] = float(1)
-
-                    ## ---------- status related --> new update TBC
-                    # conf_asset_list = df_unit_sub.loc[df_unit_sub['Status']>0, :].index
-                    # if len(conf_asset_list)>0:
-                    #     df_unit_sub.loc[conf_asset_list, 'Status'] = twothree_scaler.fit_transform(df_unit_sub.loc[conf_asset_list, 'Status'].values.reshape(-1,1))
-                    # df_unit_sub.loc[df_unit_sub['Status']==0, 'Status'] = 1
                     
                     ## ---------- intend related
                     right_intend_rank = intend_dict[right_intend][right_intend]
@@ -239,7 +218,7 @@ def run(rb_case, weight, view=True):
                         columns=[
                             "Qty",
                             "Configuration",
-                            # "Effective Radius (km)",
+                            "Status",
                             "Coverage",
                             "Latitude",
                             "Longitude",
@@ -247,78 +226,46 @@ def run(rb_case, weight, view=True):
                         ]
                     )
 
-                    ## ---------- get the score for each asset
-                    # df_temp = pd.DataFrame()
-                    # for item, w in weight.items():
-                    #     df_temp.loc[:, item] = df_unit_sub.loc[:, item].apply(
-                    #         lambda x: x * w
-                    #     )
-                    # df_unit_sub.loc[:, "score"] = df_temp.sum(axis=1)
-
-                    ## ---------- to include priority as one of the criterias in detect phase
+                    ## ---------- asset assignment
+                    # detect phase
                     if rb_case.status_flag == 1:
-                        priority_list = [(rb_case.df_hptl.loc[rb_case.df_hptl["How"]==x, "Priority"].max()) for x in df_unit_sub.index]
-                        max_p = max(priority_list)
-                        df_unit_sub.loc[:, "Priority"] = [(max_p-i) for i in priority_list]
-                        sorted_df = df_unit_sub.fillna(0).sort_values(by=weight).astype({'Priority':'int32'})
+                        conf_checker = df_unit_sub.loc[df_unit_sub["Assignment"]>=3, :]
+                        if len(conf_checker) > 0:
+                            conf_units = df_unit_sub.loc[df_unit_sub["Assignment"]>=3, :].index
+                            conf_units_s = {x:
+                                rb_case.df_hptl.loc[(rb_case.df_hptl["How"]==x) & (rb_case.df_hptl["Status"]=='Detected'), "Priority"].to_dict()
+                                for x in conf_units
+                            }
+                            for k, v in conf_units_s.items():
+                                df_unit_sub.at[k, "Priority"] = list(v.values())[0] 
+                                df_unit_sub.at[k, "Taken From"] = list(v.keys())[0]
+
+                        non_conf_units = df_unit_sub.loc[df_unit_sub["Assignment"]<3, :].index
+                        nc_priority_list = [
+                            (rb_case.df_hptl.loc[rb_case.df_hptl["How"]==x, "Priority"]).to_dict()
+                            for x in non_conf_units
+                        ]
+                        temp  = [i if len(i)>0 else {'FA':0} for i in nc_priority_list]
+                        get_lowest_priority = {max(x, key=x.get): x[max(x, key=x.get)] for x in temp}
+                        df_unit_sub.loc[non_conf_units, "Priority"] = list(get_lowest_priority.values())
+                        df_unit_sub.loc[non_conf_units, "Taken From"] = list(get_lowest_priority.keys())
+
+                        max_p = df_unit_sub.loc[:,"Priority"].max()
+                        df_unit_sub.loc[:, "Priority"] = df_unit_sub.loc[:, "Priority"].apply(lambda x: max_p-x).astype("int32")
+
+                        sorted_df = df_unit_sub.sort_values(by=weight)
                         selected_unit = sorted_df.index[0]
-                        if sorted_df.at[selected_unit, "Assignment"]==1:
-                            selected_target_unit = 'FA'
-                        elif sorted_df.at[selected_unit, "Assignment"]>1:
-                            selected_target_unit = rb_case.df_hptl.loc[rb_case.df_hptl['How']==selected_unit, :].index[-1]
+                        selected_target_unit = sorted_df.loc[selected_unit, "Taken From"]
                         target_unit_taken[idx] = selected_target_unit
+                    # decide phase
                     else:
                         sorted_df = df_unit_sub.fillna(0).sort_values(by=weight)
                         selected_unit = sorted_df.index[0]
 
                     if view:
                         if rb_case.status_flag == 1:
-                            sorted_df.loc[:, "Priority"] = [(rb_case.df_hptl.loc[rb_case.df_hptl["How"]==x, "Priority"].max()) for x in sorted_df.index]
-                            sorted_df = sorted_df.fillna(0).astype({'Priority':'int32'}) # priority zero = FREE assets
+                            sorted_df.loc[:, "Priority"] = df_unit_sub.loc[:, "Priority"].apply(lambda x: max_p-x).astype("int32")
                         print(sorted_df)
-
-                    ## ---------- Decide Phase asset assignment ---------- ##
-                    # if rb_case.status_flag ==0:
-                        # score_list = sorted(list(sorted_df["score"].unique()))
-                        # min_score = score_list.pop(0)
-                        # sub_asset_list = list(sorted_df.loc[sorted_df["score"] == min_score, :].index)
-                        # selected_unit = random.sample(sub_asset_list, 1)[0]
-                        # selected_unit = sorted_df.index[0] ---> latest
-                    
-                    ## ---------- Detect Phase asset assignment - V2 ---------- ##
-                    # else:
-                    #     df_hptl_below = rb_case.df_hptl.loc[
-                    #         (rb_case.df_hptl['How'].isin(sorted_df.index)) &
-                    #         (rb_case.df_hptl['Priority']>acc_priority), :]
-                    #     if len(df_hptl_below) <= 0: # all possible solutions are above current rank
-                    #         print('All possible solution is above current priority')
-                    #         # check if there's FREE assets available in sorted df -- above: irregardless of other criteria
-                    #         slice_free = sorted_df.loc[sorted_df['Assignment']==1,:]
-                    #         if len(slice_free) > 0:
-                    #             selected_unit = slice_free.index[0]
-                    #             selected_target_unit = 'FA'
-                    #         else:
-                    #             df_hptl_above = rb_case.df_hptl.loc[
-                    #                 (rb_case.df_hptl['How'].isin(sorted_df.index)), :]
-                    #             df_hptl_above = df_hptl_above.sort_values(by=['Priority'])
-                    #             print(df_hptl_above)
-                    #             selected_unit = df_hptl_above.iloc[-1,-1]
-                    #             # get the target unit where the AUC asset is deployed from
-                    #             selected_target_unit = df_hptl_above.loc[df_hptl_above['How']==selected_unit, :].index[-1]
-                    #     else: # there are assets below current rank
-                    #         asset_below = set(df_hptl_below.loc[:, 'How'])
-                    #         print(f'There are possible solutions below current priority: {asset_below}')
-                    #         print(f'All units in current solution space: {sorted_df.index}')
-                    #         for unit in sorted_df.index:
-                    #             if sorted_df.loc[unit,'Assignment']==1: # free asset available as next best option
-                    #                 selected_unit = unit
-                    #                 selected_target_unit = 'FA'
-                    #                 break
-                    #             elif unit in asset_below:
-                    #                 selected_unit = unit
-                    #                 selected_target_unit = df_hptl_below.loc[df_hptl_below['How']==selected_unit, :].index[-1]
-                    #                 break
-                    #     target_unit_taken[idx] = selected_target_unit
                     
                     if not selected_unit.startswith("NS"):
                         asset_dep_count[selected_unit] += 1
@@ -352,7 +299,6 @@ def run(rb_case, weight, view=True):
                         except:
                             warning_dict[idx] = {f"{selected_unit}": ["timeliness_violation"]}
 
-        # output.append(selected_unit)
         output[idx] = selected_unit
         print(f"Selected Unit: {selected_unit}")
         if rb_case.status_flag == 1:
