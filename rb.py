@@ -148,6 +148,7 @@ def run(rb_case, weight, view=True):
             if acc_t_sensitive == 0:
                 df_unit_info = df_unit_info.loc[df_unit_info['Assignment'] < 3, :]
         
+        # if no assets left, break for loop
         if len(df_unit_info) == 0:
             t_unit_index = rb_case.target_unit_list.index(idx)
             for r in rb_case.target_unit_list[t_unit_index:]:
@@ -253,52 +254,71 @@ def run(rb_case, weight, view=True):
                     #         lambda x: x * w
                     #     )
                     # df_unit_sub.loc[:, "score"] = df_temp.sum(axis=1)
-                    sorted_df = df_unit_sub.sort_values(by=weight)
+
+                    ## ---------- to include priority as one of the criterias in detect phase
+                    if rb_case.status_flag == 1:
+                        priority_list = [(rb_case.df_hptl.loc[rb_case.df_hptl["How"]==x, "Priority"].max()) for x in df_unit_sub.index]
+                        max_p = max(priority_list)
+                        df_unit_sub.loc[:, "Priority"] = [(max_p-i) for i in priority_list]
+                        sorted_df = df_unit_sub.fillna(0).sort_values(by=weight).astype({'Priority':'int32'})
+                        selected_unit = sorted_df.index[0]
+                        if sorted_df.at[selected_unit, "Assignment"]==1:
+                            selected_target_unit = 'FA'
+                        elif sorted_df.at[selected_unit, "Assignment"]>1:
+                            selected_target_unit = rb_case.df_hptl.loc[rb_case.df_hptl['How']==selected_unit, :].index[-1]
+                        target_unit_taken[idx] = selected_target_unit
+                    else:
+                        sorted_df = df_unit_sub.fillna(0).sort_values(by=weight)
+                        selected_unit = sorted_df.index[0]
+
                     if view:
+                        if rb_case.status_flag == 1:
+                            sorted_df.loc[:, "Priority"] = [(rb_case.df_hptl.loc[rb_case.df_hptl["How"]==x, "Priority"].max()) for x in sorted_df.index]
+                            sorted_df = sorted_df.fillna(0).astype({'Priority':'int32'}) # priority zero = FREE assets
                         print(sorted_df)
 
                     ## ---------- Decide Phase asset assignment ---------- ##
-                    if rb_case.status_flag ==0:
+                    # if rb_case.status_flag ==0:
                         # score_list = sorted(list(sorted_df["score"].unique()))
                         # min_score = score_list.pop(0)
                         # sub_asset_list = list(sorted_df.loc[sorted_df["score"] == min_score, :].index)
                         # selected_unit = random.sample(sub_asset_list, 1)[0]
-                        selected_unit = sorted_df.index[0]
+                        # selected_unit = sorted_df.index[0] ---> latest
                     
                     ## ---------- Detect Phase asset assignment - V2 ---------- ##
-                    else:
-                        df_hptl_below = rb_case.df_hptl.loc[
-                            (rb_case.df_hptl['How'].isin(sorted_df.index)) &
-                            (rb_case.df_hptl['Priority']>acc_priority), :]
-                        if len(df_hptl_below) <= 0: # all possible solutions are above current rank
-                            print('All possible solution is above current priority')
-                            # check if there's FREE assets available in sorted df -- above: irregardless of other criteria
-                            slice_free = sorted_df.loc[sorted_df['Assignment']==1,:]
-                            if len(slice_free) > 0:
-                                selected_unit = slice_free.index[0]
-                                selected_target_unit = 'FA'
-                            else:
-                                df_hptl_above = rb_case.df_hptl.loc[
-                                    (rb_case.df_hptl['How'].isin(sorted_df.index)), :]
-                                df_hptl_above = df_hptl_above.sort_values(by=['Priority'])
-                                print(df_hptl_above)
-                                selected_unit = df_hptl_above.iloc[-1,-1]
-                                # get the target unit where the AUC asset is deployed from
-                                selected_target_unit = df_hptl_above.loc[df_hptl_above['How']==selected_unit, :].index[-1]
-                        else: # there are assets below current rank
-                            asset_below = set(df_hptl_below.loc[:, 'How'])
-                            print(f'There are possible solutions below current priority: {asset_below}')
-                            print(f'All units in current solution space: {sorted_df.index}')
-                            for unit in sorted_df.index:
-                                if sorted_df.loc[unit,'Assignment']==1: # free asset available as next best option
-                                    selected_unit = unit
-                                    selected_target_unit = 'FA'
-                                    break
-                                elif unit in asset_below:
-                                    selected_unit = unit
-                                    selected_target_unit = df_hptl_below.loc[df_hptl_below['How']==selected_unit, :].index[-1]
-                                    break
-                        target_unit_taken[idx] = selected_target_unit
+                    # else:
+                    #     df_hptl_below = rb_case.df_hptl.loc[
+                    #         (rb_case.df_hptl['How'].isin(sorted_df.index)) &
+                    #         (rb_case.df_hptl['Priority']>acc_priority), :]
+                    #     if len(df_hptl_below) <= 0: # all possible solutions are above current rank
+                    #         print('All possible solution is above current priority')
+                    #         # check if there's FREE assets available in sorted df -- above: irregardless of other criteria
+                    #         slice_free = sorted_df.loc[sorted_df['Assignment']==1,:]
+                    #         if len(slice_free) > 0:
+                    #             selected_unit = slice_free.index[0]
+                    #             selected_target_unit = 'FA'
+                    #         else:
+                    #             df_hptl_above = rb_case.df_hptl.loc[
+                    #                 (rb_case.df_hptl['How'].isin(sorted_df.index)), :]
+                    #             df_hptl_above = df_hptl_above.sort_values(by=['Priority'])
+                    #             print(df_hptl_above)
+                    #             selected_unit = df_hptl_above.iloc[-1,-1]
+                    #             # get the target unit where the AUC asset is deployed from
+                    #             selected_target_unit = df_hptl_above.loc[df_hptl_above['How']==selected_unit, :].index[-1]
+                    #     else: # there are assets below current rank
+                    #         asset_below = set(df_hptl_below.loc[:, 'How'])
+                    #         print(f'There are possible solutions below current priority: {asset_below}')
+                    #         print(f'All units in current solution space: {sorted_df.index}')
+                    #         for unit in sorted_df.index:
+                    #             if sorted_df.loc[unit,'Assignment']==1: # free asset available as next best option
+                    #                 selected_unit = unit
+                    #                 selected_target_unit = 'FA'
+                    #                 break
+                    #             elif unit in asset_below:
+                    #                 selected_unit = unit
+                    #                 selected_target_unit = df_hptl_below.loc[df_hptl_below['How']==selected_unit, :].index[-1]
+                    #                 break
+                    #     target_unit_taken[idx] = selected_target_unit
                     
                     if not selected_unit.startswith("NS"):
                         asset_dep_count[selected_unit] += 1
