@@ -36,9 +36,6 @@ intend_rank_dict = {
     "Destroy": destroy_rank,
 }
 
-# mm = MinMaxScaler(feature_range=(1, 3))
-# twothree_scaler = MinMaxScaler(feature_range=(2, 3))
-
 ## -------------------- create relevant dataframes
 class RB:
     def __init__(self, excel_filename):
@@ -181,7 +178,7 @@ def run(rb_case, weight, view=True):
                 print()
                 continue
             else:
-                ## ---------- FRange related
+                ## ---------- Effective Radius related
                 # dist of incident to asset location
                 df_unit_sub["Distance"] = df_unit_sub.apply(lambda x: haversine(acc_location, (x["Latitude"], x["Longitude"])),axis=1,)
                 print(f"out of range units: {list(df_unit_sub[df_unit_sub['Distance']>df_unit_sub['Effective Radius (km)']].index)}")
@@ -197,8 +194,8 @@ def run(rb_case, weight, view=True):
                     continue
                 else:
 
-                    ## ----------- time related
-                    df_unit_sub.loc[:, "Time (s)"] = df_unit_sub.apply(lambda x: safe_division(x["Distance"], x["Speed (Km/h)"]) * 3600, axis=1,)  # in seconds
+                    ## ----------- Time related
+                    df_unit_sub.loc[:, "Time (s)"] = df_unit_sub.apply(lambda x: safe_division(x["Distance"], x["Speed (Km/h)"]) * 3600 + x["Status"], axis=1,)  # in seconds
                     exceed_t_temp = df_unit_sub.loc[df_unit_sub["Time (s)"] > acc_timeliness, :]
                     # if assets beyond timeliness, will be scaled to value ranging from 2-3
                     if (len(exceed_t_temp) > 0):
@@ -210,7 +207,7 @@ def run(rb_case, weight, view=True):
                         timeliness_flag = 0
                         df_unit_sub.loc[:, "DerivedTime"] = float(1)
                     
-                    ## ---------- intend related
+                    ## ---------- Intend related
                     right_intend_rank = intend_dict[right_intend][right_intend]
                     df_unit_sub.loc[:, "Intend"] = df_unit_sub.apply(lambda x: rb_case.df_asset_c.loc[acc_cat, x["Asset Type"]], axis=1)
                     df_unit_sub.loc[:, "Intend"] = df_unit_sub.loc[:, "Intend"].apply(lambda x: intend_dict[right_intend][x])
@@ -226,7 +223,7 @@ def run(rb_case, weight, view=True):
                         ]
                     )
 
-                    ## ---------- asset assignment
+                    ## ---------- Asset Assignment
                     # detect phase
                     if rb_case.status_flag == 1:
                         conf_checker = df_unit_sub.loc[df_unit_sub["Assignment"]>=3, :]
@@ -241,15 +238,23 @@ def run(rb_case, weight, view=True):
                                 df_unit_sub.at[k, "Taken From"] = list(v.keys())[0]
 
                         non_conf_units = df_unit_sub.loc[df_unit_sub["Assignment"]<3, :].index
-                        nc_priority_list = [
-                            (rb_case.df_hptl.loc[rb_case.df_hptl["How"]==x, "Priority"]).to_dict()
+                        nc_priority_dict = {
+                            x: rb_case.df_hptl.loc[rb_case.df_hptl["How"]==x, "Priority"].to_dict()
                             for x in non_conf_units
-                        ]
-                        temp  = [i if len(i)>0 else {'FA':0} for i in nc_priority_list]
-                        get_lowest_priority = {max(x, key=x.get): x[max(x, key=x.get)] for x in temp}
+                        }
+                        get_lowest_priority = dict()
+                        for unit, d in nc_priority_dict.items():
+                            if len(d)==0:
+                                get_lowest_priority[unit] = {'FA':0}
+                            elif len(d)==1:
+                                get_lowest_priority[unit] = d
+                            else:
+                                get_lowest_priority[unit] = {max(d, key=d.get): d[max(d, key=d.get)]}
                         df_unit_sub.loc[non_conf_units, "Priority"] = list(get_lowest_priority.values())
                         df_unit_sub.loc[non_conf_units, "Taken From"] = list(get_lowest_priority.keys())
-
+                        for unit in non_conf_units:
+                            df_unit_sub.at[unit, "Priority"] = list(get_lowest_priority[unit].values())[0]
+                            df_unit_sub.loc[unit, "Taken From"] = list(get_lowest_priority[unit].keys())[0]
                         max_p = df_unit_sub.loc[:,"Priority"].max()
                         df_unit_sub.loc[:, "Priority"] = df_unit_sub.loc[:, "Priority"].apply(lambda x: max_p-x).astype("int32")
 
