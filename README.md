@@ -184,8 +184,6 @@ Warning Message included:
 - `intend_lowered`: whenever an asset with lower level of capability is deployed instead of the original intend
 - `timeliness_violation`: whenever an asset which derived time is beyond the target's timeliness standard
 
-Asset unit selected for each target unit is represented differently.
-
 *Decide Phase:*
 
 ```python
@@ -217,7 +215,7 @@ sample_target_unit_taken = {
 }
 ```
 
-> *running `main.py` saves output in a JSON file (containing these 3 dictionaries) and a CSV file*
+> *Running `main.py` saves output in a JSON file (containing these 3 dictionaries) and a CSV file, comment out code in `main.py` to omit JSON output*
 
 ### How do we score each asset?
 
@@ -282,7 +280,7 @@ Another approach is to sort the DataFrame columns according to their importance 
 
 *30 Sept 2022*:
 
-- Solution Ver. 1
+- Decide Phase Solution Ver. 1
 
 1. Priority
 2. Intent/ Capability (e.g. if intent can be fulfilled with allocated assets, we will pick it as solution)
@@ -292,7 +290,7 @@ Another approach is to sort the DataFrame columns according to their importance 
 6. Timeliness (Derived Time = Prep Time + Travel Time)
 7. FREE/ AUC/ CONF asset cat
 
-- Solution Ver. 2
+- Decide Phase Solution Ver. 2
 
 1. Priority
 2. Intent/ Capability (e.g. if intent can be fulfilled with allocated assets, we will pick it as solution)
@@ -313,3 +311,14 @@ Another approach is to sort the DataFrame columns according to their importance 
 5. Status (Prep Time, value only for CONF assets) --> *might not be in used, to be confirmed*
 6. FRange (Scaled effective range, distance between asset and target < asset's effective range)
 7. Timeliness (Derived Time = Prep Time + Travel Time)
+
+*17 Oct 2022*:
+
+- Detect Phase
+
+1. Intend
+2. Timeliness (Derived Time = Prep Time + Travel Time)
+3. FREE/ AUC/ CONF asset cat (Assignment)
+4. Priority
+5. Organic/ Allocated asset type
+6. Effective Radius (km)
