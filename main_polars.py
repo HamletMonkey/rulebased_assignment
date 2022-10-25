@@ -2,8 +2,6 @@ import os
 
 import polars as pl
 import json
-# import random
-
 
 from shapely.geometry import Polygon, Point
 from haversine import haversine
@@ -14,7 +12,6 @@ import argparse
 pl.cfg.Config.set_tbl_cols(-1)
 
 ## -------------------- create useful dictionaries + tools
-
 # intend dictionary - relative to different intend
 suppress_int = dict(Suppress=1, Neutralize=2, Destroy=3)
 neutralize_int = dict(Neutralize=1, Destroy=2, Suppress=3)
@@ -53,36 +50,70 @@ class RB:
         self.q_unit_info = self.df_asset_ml.lazy() # lazy df
 
     def tidy_up(self):
+        # get q_unit_info - add in priority and assigned target designation for AUC and CONF assets
+        conf_units = self.q_unit_info.filter(pl.col("Assignment")=="CONF").select(pl.col("Unit")).collect().to_series().to_list()
+        auc_units = self.q_unit_info.filter(pl.col("Assignment")=="AUC").select(pl.col("Unit")).collect().to_series().to_list()
+        conf_sub_df = self.df_hptl.lazy().filter(
+            (pl.col("How").is_in(conf_units)) &
+            (pl.col("Status")=="Detected")
+        ).groupby("How").agg([
+            pl.all().sort_by('Priority').last(),
+        ]).select(
+            [
+                pl.col("How"),
+                pl.col("Priority"),
+                pl.col("Target Designation")
+            ]
+        )
+        auc_sub_df = self.df_hptl.lazy().filter(
+            (pl.col("How").is_in(auc_units))
+        ).groupby("How").agg([
+            pl.all().sort_by('Priority').last(),
+        ]).select(
+            [
+                pl.col("How"),
+                pl.col("Priority"),
+                pl.col("Target Designation")
+            ]
+        )
+        conf_auc_df = conf_sub_df.collect().vstack(auc_sub_df.collect())
+
         self.q_unit_info = (
-            self.q_unit_info.select(
+            self.q_unit_info.join(
+                conf_auc_df.lazy(), left_on=["Unit"], right_on=["How"], how='left'
+            ).filter(
+                pl.col("Assignment") != "RESERVED"
+            ).with_columns(
+                [
+                    pl.when(pl.col("CMD/SUP") == "Organic").then(1).otherwise(2).keep_name(),
+                    pl.when(pl.col('Assignment')=='FREE').then(1).when(pl.col('Assignment')=='AUC').then(2).otherwise(3).keep_name(),
+                    pl.col("Priority").fill_null(0).keep_name(),
+                    pl.col("Target Designation").fill_null('FA').keep_name()
+                ]
+            ).with_column(
+                pl.when(pl.col("Priority")==0).then(0).otherwise(pl.col("Priority").max()+1 - pl.col("Priority")).keep_name()
+            ).select(
                 [
                     pl.col("*"),
                     pl.col("Coverage").apply(lambda x: 1 if "A" in x else 0).alias("Sector A"),
                     pl.col("Coverage").apply(lambda x: 1 if "B" in x else 0).alias("Sector B"),
                     pl.col("Coverage").apply(lambda x: 1 if "C" in x else 0).alias("Sector C"),
                 ]
-            ).filter(
-                pl.col("Assignment") != "RESERVED"
-            ).with_columns(
-                [
-                   (pl.when(pl.col("CMD/SUP") == "Organic").then(1).otherwise(2).keep_name()),
-                   (pl.when(pl.col('Assignment')=='FREE').then(1).when(pl.col('Assignment')=='AUC').then(2).otherwise(3).keep_name())
-                ]
-            )
-            .drop_nulls()
+            ).rename({'Target Designation':'Taken From'})
         )
-        # self.status_check = self.df_hptl.select("Status").unique().row(0)[0]
+        
+        # get target unit list
         self.status_check = self.df_hptl.select("Status").unique().to_numpy()
         if 'Detected' in self.status_check:
             self.status_flag = 1# Detect Phase
         self.target_unit_list = (self.df_hptl.select("Target Designation").to_series().to_list())
 
+        # create iea dictionary
         for i in range(len(self.df_sector)):
             all_points = list()
             for j in range(1, 9, 2):
                 all_points.append(list(self.df_sector.rows()[i][j : j + 2]))
             self.sectors[self.df_sector.rows()[i][0]] = Polygon(all_points) 
-
         intend_dict_master = (
             self.df_asset_c.filter(pl.col("Category") != "0")
             .to_dict(as_series=False)
@@ -98,16 +129,6 @@ def get_weight_dict(json_input):
     with open(json_input, "r") as f:
         weight_dict = json.loads(f.read())
     return weight_dict
-
-# def minmax_standard(s, min_val, max_val):
-#     scaled_s = ((s -min(s)) / (max(s)-min(s))) *(max_val-min_val) + min_val
-#     return scaled_s
-
-# def minmax_cond(col:str, predicate: pl.Expr, min_val, max_val):
-#     x = pl.col(col)
-#     x_min = x.filter(predicate).min()
-#     x_max = x.filter(predicate).max()
-#     return ((x-x_min) / (x_max-x_min)) * (max_val-min_val) + min_val
 
 def run(rb, weight, view=True):
 
@@ -158,6 +179,7 @@ def run(rb, weight, view=True):
                     | ((pl.col("CMD/SUP") == 2) & (pl.col("DeployCount") < 1))
                 )
             )
+        # detect phase - each asset can only be deployed up ONCE
         else:
             df_unit_info = (
                 rb.q_unit_info.with_column(
@@ -165,11 +187,12 @@ def run(rb, weight, view=True):
                 )
                 .filter((pl.col("DeployCount") < 1))
             )
+            ## ----------- Time Sensitive related
             if hptl_info['Time-Sensitive'] == 0:
                 df_unit_info = df_unit_info.filter(
                 pl.col('Assignment')<3
             )
-        # if no assets left, break for loop
+        # if no assets left, break for-loop
         if df_unit_info.collect().is_empty() :
             t_unit_index = rb.target_unit_list.index(tunit)
             for r in rb.target_unit_list[t_unit_index:]:
@@ -237,12 +260,11 @@ def run(rb, weight, view=True):
                     print()
                     continue
                 else:
-                    ## ---------- get derived time + scaling of Effective Radius column --> FRange column
+                    ## ---------- get derived time if assets beyond timeliness, keep derived time value
                     dummy = dummy.select(
                         [
                             pl.col("*"),
-                            (pl.col("Distance") / pl.col("Speed (Km/h)") * 3600).alias("Time (secs)"),
-                            # pl.col("Effective Radius (km)").map(lambda x: minmax_standard(x,1,3)).alias("FRange")
+                            (pl.col("Distance") / pl.col("Speed (Km/h)") * 3600 + pl.col("Status")).alias("Time (secs)"),
                         ]
                     ).with_columns(
                         [
@@ -250,119 +272,44 @@ def run(rb, weight, view=True):
                         ]
                     ).fill_nan(1)
 
-                    ## --------- get time in scale, anything within timeliness is 1, beyond will be scaled between 2 and 3 --> DerivedTime column
                     # if all assets are within timeliness - all assets derived time is set to 1 (no preference)
                     if dummy.filter(pl.col("Time (secs)") > acc_timeliness).is_empty():
                         timeliness_flag = 0
                         dummy = dummy.with_column(
                             pl.lit(1).alias("DerivedTime")  # result in integer
                         )
-                    # else, those beyond timeliness, will be scaled to value ranging from 2-3
+                    # else, those beyond timeliness, will be having its original derived time value
                     else:
                         timeliness_flag = 1
                         timeliness_pred = pl.col('Time (secs)')>acc_timeliness
                         dummy = dummy.with_column(
-                            # pl.when(timeliness_pred).then(minmax_cond('Time (secs)', timeliness_pred, 2,3)).otherwise(1).alias('DerivedTime')
                             pl.when(timeliness_pred).then(pl.col('Time (secs)')).otherwise(1).alias('DerivedTime')
                         ).fill_nan(1)
                         exceed_t_units = dummy.filter(pl.col("DerivedTime")>1).select("Unit").to_series()
-                    
-                    ## --------- get Status in scale, anything within readily avail (0) is 1, larger than 0 will be scaled between 2 and 3 --> Status column
-                    # if dummy.filter(pl.col("Status") > 0).is_empty():
-                    #     dummy = dummy.with_columns(
-                    #         [
-                    #             pl.exclude("Status"),
-                    #             pl.lit(1).alias("Status")  # result in integer
-                    #         ]
-                    #     )
-                    # else:
-                    #     status_pred = pl.col("Status")>0
-                    #     dummy = dummy.with_column(
-                    #         pl.when(status_pred).then(minmax_cond("Status", status_pred, 2,3)).otherwise(1).keep_name()
-                    #     )
 
-                    ## ---------- get intend of each asset with respect to each target designation + score
+                    ## ---------- get intend of each asset with respect to each target designation
                     # also dropping columns
                     right_intend_rank = intend_dict[hptl_info["Intend"]][hptl_info["Intend"]]
                     right_intend_rank = intend_dict[hptl_info["Intend"]][hptl_info["Intend"]]
                     dummy = dummy.select(
                         [
                             (pl.col("Asset Type").apply(
-                                lambda x: intend_dict[rb.iea_dict[hptl_info["Category"]][x]][rb.iea_dict[hptl_info["Category"]][x]]
+                                lambda x: intend_dict[hptl_info["Intend"]][rb.iea_dict[hptl_info["Category"]][x]]
                             ).alias("Intend")),
                             (pl.exclude(["Qty","Configuration","Coverage","Latitude","Longitude","Speed (Km/h)"]))
                         ]
-                    # ).with_column(
-                    #     pl.sum([pl.col(i)*weight_dict[i] for i in weight_dict.keys()]).alias('Score')
-                    # ).sort("Score")
                     ).sort([pl.col(x) for x in weight])
 
-
-                    # glimpse of dataframe
                     if view:
                         print(dummy)
 
                     ## ---------- assigning of asset to deploy
+                    selected_unit = dummy.select(pl.col('Unit')).row(0)[0]
                     ## ---------- Decide Phase asset assignment ---------- ##
-                    if rb.status_flag == 0:
-                        # score_list = sorted(
-                        #     dummy.lazy()
-                        #     .select(pl.col("Score"))
-                        #     .collect()
-                        #     .to_series()
-                        #     .to_list()
-                        # )
-                        # min_score = score_list.pop(0)
-                        # # sub asset list for assets with the same (lowest) score
-                        # sub_asset_list = (
-                        #     dummy.lazy()
-                        #     .filter(pl.col("Score") == min_score)
-                        #     .select(pl.col("Unit"))
-                        #     .collect()
-                        #     .to_series()
-                        #     .to_list()
-                        # )
-                        # print(f'sub asset list: {sub_asset_list}')
-                        # selected_unit = random.sample(sub_asset_list, 1)[0]
-                        selected_unit = dummy.select(pl.col('Unit')).row(0)[0]
-                    ## ---------- Detext Phase asset assignment V2 ---------- ##
-                    else:
-                        sorted_df_units = dummy.select(pl.col("Unit")).to_series().to_list()
-                        df_hptl_below = rb.df_hptl.lazy().filter(
-                            (pl.col("How").is_in(sorted_df_units)) &
-                            (pl.col('Priority')>hptl_info['Priority'])
-                        )
-                        # if len(df_hptl_below.collect()) <= 0: # all possible solutions are above current rank
-                        if df_hptl_below.collect().is_empty():
-                            print('All possible solution is above current priority')
-                            df_slice_free = dummy.lazy().filter(pl.col("Assignment")==1).collect() # a dataframe
-                            if not df_slice_free.is_empty():
-                                print("above: There are FREE assets!")
-                                selected_unit = df_slice_free.filter(pl.col("Unit")).row(0)[0]
-                                selected_target_unit = 'FA'
-                            else:
-                                df_hptl_above = rb.df_hptl.lazy().filter(
-                                    pl.col("How").is_in(sorted_df_units)
-                                ).sort("Priority") # all above here
-                                print("above: There are no FREE assets!")
-                                print(df_hptl_above.collect())
-                                selected_unit = df_hptl_above.collect().row(-1)[-1] # nearest to the current target priority
-                                selected_target_unit = rb.df_hptl.filter(pl.col('How')==selected_unit).select(pl.col('Target Designation')).row(0)[0]
-                        else:
-                            asset_below = set(df_hptl_below.select(pl.col("How")).collect().to_series().to_list())
-                            print(f'There are possible solutions below current priority: {asset_below}')
-                            print(f'All units in current solution space: {sorted_df_units}')
-                            for unit in sorted_df_units:
-                                if 1 in dummy.filter(pl.col('Unit')==unit).select(pl.col('Assignment')).row(0): # free asset available
-                                    selected_unit = unit
-                                    selected_target_unit = 'FA'
-                                    break
-                                elif unit in asset_below:
-                                    selected_unit = unit
-                                    selected_target_unit = rb.df_hptl.filter(pl.col('How')==unit).select(pl.col('Target Designation')).row(-1)[0]
-                                    break
-                        target_unit_taken[tunit] = selected_target_unit
-
+                    if rb.status_flag == 1:      
+                        selected_target_unit = dummy.select(pl.col('Taken From')).row(0)[0]
+                        target_unit_taken[tunit] = selected_target_unit     
+                    
                     if not selected_unit.startswith("NS"):
                         asset_dep_count[selected_unit] += 1
 
@@ -425,7 +372,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         # "--input_path", type=str, default="./xlsx_files/decide_phase/DMS_target_sample_v2.xlsx"
-        "--input_path", type=str, default="./xlsx_files/detect_phase/DMS_target_sample_det1_non_tsensitive.xlsx"
+        "--input_path", type=str, default="./xlsx_files/detect_phase/DMS_target_sample_det1_tsensitive.xlsx"
     )
     parser.add_argument("--output_path", type=str, default="trial")
     # parser.add_argument("--weight_path", type=str, default="./weight_decide_ns.json")
