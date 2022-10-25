@@ -104,44 +104,68 @@ def run(rb_case, weight, view=True):
         zip(asset_unit_list, [0 for _ in range(len(asset_unit_list))])
     )
 
-    df_hptl_md = rb_case.df_hptl.copy(deep=True)
-    if rb_case.status_flag == 1: # detect phase
-        df_hptl_md = df_hptl_md.loc[(df_hptl_md['Status']=='Detected') & (df_hptl_md['How']==0)]
+    if rb_case.status_flag == 0: # decide phase
+        df_hptl_md = rb_case.df_hptl.copy(deep=True)
+    else: # detect phase
+        # add in priority and assigned target designation for AUC and CONF assets
+        conf_unit_asset = rb_case.df_asset_ml.loc[rb_case.df_asset_ml["Assignment"]==3].index
+        auc_unit_asset = rb_case.df_asset_ml.loc[rb_case.df_asset_ml["Assignment"]==2].index
+
+        # dealing with CONF units
+        conf_df = rb_case.df_hptl.loc[(rb_case.df_hptl["How"].isin(conf_unit_asset)) & (rb_case.df_hptl["Status"]=='Detected')].reset_index()
+        conf_df = conf_df.loc[:, ["Target Designation","Priority","How"]]
+
+        # dealing with AUC units
+        auc_df = pd.DataFrame()
+        temp_hptl = rb_case.df_hptl.loc[(rb_case.df_hptl["How"].isin(auc_unit_asset)),["Priority","How"]].reset_index()
+        for row, gp in temp_hptl.groupby("How"):
+            auc_df = pd.concat([auc_df, (gp.iloc[gp["Priority"].argmax(),:])], axis=1)
+        
+        # combine both dataframes
+        auc_conf_df = pd.concat([auc_df.T, conf_df]).set_index("How")
+        q_unit_info = rb_case.df_asset_ml.join(auc_conf_df, how="left").fillna({"Target Designation":'FA',"Priority":0})
+        max_p = max(q_unit_info["Priority"])
+        q_unit_info["Priority"] = q_unit_info["Priority"].apply(lambda x: max_p+1-x if x != 0 else 0)
+
+        df_hptl_md = rb_case.df_hptl.loc[(rb_case.df_hptl['Status']=='Detected') & (rb_case.df_hptl['How']==0)]
         target_unit_taken = dict()
         rb_case.target_unit_list = list(df_hptl_md.index)
     
     for i, (idx, row) in enumerate(df_hptl_md.iterrows()):
-        print(f"target_unit {i+1}: {idx}")
-        ## ---------- get basic info of the target unit
-        acc_cat = row["Category"]
-        print(f"incident category: {acc_cat}")
-        right_intend = row["Intend"]
-        print(f"incident right intend: {right_intend}")
-        acc_location = (row["Latitude"], row["Longitude"])
-        print(f"incident location: {acc_location}")
-        acc_timeliness = rb_case.df_target_sel.at[acc_cat, "Timeliness (Mins)"] * 60 # convert to seconds
-        print(f"incident timeliness: {acc_timeliness} secs")
-        acc_priority = row["Priority"]
-        print(f"incident priority: {acc_priority}")
-        acc_t_sensitive = row["Time-Sensitive"]
-        print(f"incident t sensitive: {acc_t_sensitive}")
 
-        df_unit_info = rb_case.df_asset_ml.copy(deep=True)
-        df_unit_info.loc[:, "DeployCount"] = list(asset_dep_count.values())
+        ## ---------- get basic info of the target unit
+        print(f"target designation {i+1}: {idx}")
+        acc_cat = row["Category"]
+        print(f"target category: {acc_cat}")
+        right_intend = row["Intend"]
+        print(f"target right intend: {right_intend}")
+        acc_location = (row["Latitude"], row["Longitude"])
+        print(f"target location: {acc_location}")
+        acc_timeliness = rb_case.df_target_sel.at[acc_cat, "Timeliness (Mins)"] * 60 # convert to seconds
+        print(f"target timeliness: {acc_timeliness} secs")
+        acc_priority = row["Priority"]
+        print(f"target priority: {acc_priority}")
+        acc_t_sensitive = row["Time-Sensitive"]
+        print(f"target t sensitive: {acc_t_sensitive}")
+
         ## ---------- filter asset solution space based on count deployed - wrt decide and detect phase
         # decide phase - each organic asset can be deployed up to 3 targets
         if rb_case.status_flag == 0:
+            df_unit_info = rb_case.df_asset_ml.copy(deep=True)
+            df_unit_info.loc[:, "DeployCount"] = list(asset_dep_count.values())
             organic_units = df_unit_info.loc[((df_unit_info['DeployCount']<3) & (df_unit_info['CMD/SUP']==1)), :]
             allocated_units = df_unit_info.loc[((df_unit_info['DeployCount']<1) & (df_unit_info['CMD/SUP']==2)), :]
             df_unit_info = pd.concat([organic_units, allocated_units])
         # detect phase - each asset can only be deployed up ONCE
         else:
+            df_unit_info = q_unit_info.copy(deep=True)
+            df_unit_info.loc[:, "DeployCount"] = list(asset_dep_count.values())
             df_unit_info = df_unit_info.loc[df_unit_info['DeployCount']<1, :]
-            ## ----------- time sensitive related
+            ## ----------- Time Sensitive related
             if acc_t_sensitive == 0:
                 df_unit_info = df_unit_info.loc[df_unit_info['Assignment'] < 3, :]
         
-        # if no assets left, break for loop
+        # if no assets left, break for-loop
         if len(df_unit_info) == 0:
             t_unit_index = rb_case.target_unit_list.index(idx)
             for r in rb_case.target_unit_list[t_unit_index:]:
@@ -151,7 +175,7 @@ def run(rb_case, weight, view=True):
             print()
             break
         else:
-            # reassigning asset deploy count to value of 1 to 3
+            # reassign asset deploy count to value of 1 to 3
             df_unit_info.loc[:, "DeployCount"] = df_unit_info.loc[:, "DeployCount"].apply(
                 lambda x: 1 if x==0 else 2 if x==1 else 3
             )
@@ -161,6 +185,7 @@ def run(rb_case, weight, view=True):
                 sector for sector, poly in rb_case.sectors.items() if acc_point.within(poly)
             ]
             print(f"coverage includes sectors: {acc_coverage}")
+
             # get all assets within the sectors involved
             idx_list = list()
             for c in acc_coverage:
@@ -197,7 +222,7 @@ def run(rb_case, weight, view=True):
                     ## ----------- Time related
                     df_unit_sub.loc[:, "Time (s)"] = df_unit_sub.apply(lambda x: safe_division(x["Distance"], x["Speed (Km/h)"]) * 3600 + x["Status"], axis=1,)  # in seconds
                     exceed_t_temp = df_unit_sub.loc[df_unit_sub["Time (s)"] > acc_timeliness, :]
-                    # if assets beyond timeliness, will be scaled to value ranging from 2-3
+                    # if assets beyond timeliness, keep derived time value
                     if (len(exceed_t_temp) > 0):
                         timeliness_flag = 1
                         df_unit_sub.loc[exceed_t_temp.index, "DerivedTime"] = df_unit_sub.loc[exceed_t_temp.index, "Time (s)"]
@@ -223,53 +248,16 @@ def run(rb_case, weight, view=True):
                         ]
                     )
 
-                    ## ---------- Asset Assignment
-                    # detect phase
+                    sorted_df = df_unit_sub.sort_values(by=weight)
+                    selected_unit = sorted_df.index[0]
+
                     if rb_case.status_flag == 1:
-                        conf_checker = df_unit_sub.loc[df_unit_sub["Assignment"]>=3, :]
-                        if len(conf_checker) > 0:
-                            conf_units = df_unit_sub.loc[df_unit_sub["Assignment"]>=3, :].index
-                            conf_units_s = {x:
-                                rb_case.df_hptl.loc[(rb_case.df_hptl["How"]==x) & (rb_case.df_hptl["Status"]=='Detected'), "Priority"].to_dict()
-                                for x in conf_units
-                            }
-                            for k, v in conf_units_s.items():
-                                df_unit_sub.at[k, "Priority"] = list(v.values())[0] 
-                                df_unit_sub.at[k, "Taken From"] = list(v.keys())[0]
-
-                        non_conf_units = df_unit_sub.loc[df_unit_sub["Assignment"]<3, :].index
-                        nc_priority_dict = {
-                            x: rb_case.df_hptl.loc[rb_case.df_hptl["How"]==x, "Priority"].to_dict()
-                            for x in non_conf_units
-                        }
-                        get_lowest_priority = dict()
-                        for unit, d in nc_priority_dict.items():
-                            if len(d)==0:
-                                get_lowest_priority[unit] = {'FA':0}
-                            elif len(d)==1:
-                                get_lowest_priority[unit] = d
-                            else:
-                                get_lowest_priority[unit] = {max(d, key=d.get): d[max(d, key=d.get)]}
-                        df_unit_sub.loc[non_conf_units, "Priority"] = list(get_lowest_priority.values())
-                        df_unit_sub.loc[non_conf_units, "Taken From"] = list(get_lowest_priority.keys())
-                        for unit in non_conf_units:
-                            df_unit_sub.at[unit, "Priority"] = list(get_lowest_priority[unit].values())[0]
-                            df_unit_sub.loc[unit, "Taken From"] = list(get_lowest_priority[unit].keys())[0]
-                        max_p = df_unit_sub.loc[:,"Priority"].max()
-                        df_unit_sub.loc[:, "Priority"] = df_unit_sub.loc[:, "Priority"].apply(lambda x: max_p-x).astype("int32")
-
-                        sorted_df = df_unit_sub.sort_values(by=weight)
-                        selected_unit = sorted_df.index[0]
-                        selected_target_unit = sorted_df.loc[selected_unit, "Taken From"]
+                        selected_target_unit = sorted_df.loc[selected_unit, "Target Designation"]
                         target_unit_taken[idx] = selected_target_unit
-                    # decide phase
-                    else:
-                        sorted_df = df_unit_sub.fillna(0).sort_values(by=weight)
-                        selected_unit = sorted_df.index[0]
 
                     if view:
                         if rb_case.status_flag == 1:
-                            sorted_df.loc[:, "Priority"] = df_unit_sub.loc[:, "Priority"].apply(lambda x: max_p-x).astype("int32")
+                            sorted_df.loc[:, "Priority"] = sorted_df.loc[:, "Priority"].apply(lambda x: max_p+1-x if x != 0 else 0)
                         print(sorted_df)
                     
                     if not selected_unit.startswith("NS"):
