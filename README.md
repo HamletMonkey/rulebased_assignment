@@ -75,10 +75,14 @@ rank_of_intent = {
 ## Setup
 
 1. Create new environment
-`conda create --name opt_rulebased python==3.9`
+    ```PowerShell
+    conda create --name opt_rulebased python==3.9
+    ```
 
 2. Install dependencies
-`pip install -r requirements.txt`
+    ```PowerShell
+    pip install -r requirements.txt
+    ```
 
 3. Run the code:
 
@@ -91,8 +95,11 @@ rank_of_intent = {
         ```PowerShell
         python main_polars.py --input_path ./xlsx_files/dec_phase1.xlsx --output_path ./result --weight ./weight_decide.json --view --save
         ```
+    - `--weight` : path to sorting rank JSON file
+    - `--view` : view capable assets (solution space DataFrame) for each target
+    - `--save` : save results into XLSX file (and JSON file)
 
-### Current Example of CSV input (Software Output)
+### Current Example of XLSX file input (Software Output)
 
 > *subject to change*
 
@@ -184,6 +191,12 @@ Warning Message included:
 - `intend_lowered`: whenever an asset with lower level of capability is deployed instead of the original intend
 - `timeliness_violation`: whenever an asset which derived time is beyond the target's timeliness standard
 
+Two different output format:
+1. XLSX file output
+2. JSON file output differs in different phases:
+
+> *comment out code in `main.py` to omit JSON output*
+
 *Decide Phase:*
 
 ```python
@@ -204,7 +217,7 @@ sample_warning = {
 
 *Detect Phase:*
 
-There would be additional output for deploying AUC assets in Detect Phase. This is to indicate which Target Unit will the AUC asset (assigned in Decide Phase) be deployed from.
+There would be additional output for deploying AUC assets in **Detect Phase**. This is to indicate which Target Unit will the AUC asset (originally assigned in Decide Phase) be deployed from.
 
 ```python
 # {target_unit: target_unit_AUC_asset_from}
@@ -219,7 +232,8 @@ sample_target_unit_taken = {
 
 ### How do we score each asset?
 
-The weight used in different phases is passed into the DM algo by specifying the JSON file path via argument `--weight`. We can also passed in more than one set of "weights" in the same JSON file to have the DM algo to produce different outputs in the same run.
+The weight used in different phases is passed into the DM algo by specifying the JSON file path via argument `--weight`. 
+We can also pass in more than one set of "weights" in the same JSON file to have the DM algo to produce different outputs in the same run.
 
 ```json
 {
@@ -244,7 +258,7 @@ The weight used in different phases is passed into the DM algo by specifying the
 
 **Updates on Sorting Method:**
 
-Another approach is to sort the DataFrame columns according to their importance rank. With this, the relevant columns does not have to be scaled. This version of code is created under `sort_wo_score` branch, where the JSON file for weight input is slightly different:
+Other than scoring method, another approach is to sort the DataFrame columns sequentially according to their rank of importance. With this, all the relevant columns do not have to be scaled, hence avoiding issues caused by small value difference (within same column). The JSON file for weight input is updated:
 
 ```json
 {
@@ -267,7 +281,7 @@ Another approach is to sort the DataFrame columns according to their importance 
 }
 ```
 
-**Updates on Ranking Assignment:**
+**Updates on Rank Assignment:**
 
 *27 Sept 2022*:
 
